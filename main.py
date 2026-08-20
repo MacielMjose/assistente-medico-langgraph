@@ -12,39 +12,51 @@ prompt = PromptTemplate.from_template(
     "Responda apenas com uma das três palavras: Ensolarado, Nublado ou Chuvoso."
 )
 
+
 def obter_entrada(state: dict) -> dict:
     return state
+
 
 def validar_dados_paciente(state: dict) -> dict:
     return state
 
+
 # Se o paciente não existir, pular varias etapas e sugerir marcar uma consulta com um profissional de saúde. (Bifurcação de nodos)
-def buscar_paciente(state: dict) -> dict: 
+def buscar_paciente(state: dict) -> dict:
     return state
+
 
 def obter_prontuarios(state: dict) -> dict:
     return state
 
+
 def buscar_exames(state: dict) -> dict:
     return state
+
 
 def consultar_modelo_llm(state: dict) -> dict:
     return state
 
+
 def gerar_explicacao(state: dict) -> dict:
     return state
+
 
 def validar_com_profissional(state: dict) -> dict:
     return state
 
+
 def sugerir_tratamentos(state: dict) -> dict:
     return state
+
 
 def emitir_alertas(state: dict) -> dict:
     return state
 
+
 def registrar_log_auditoria(state: dict) -> dict:
     return state
+
 
 workflow = StateGraph(EstadoClima)
 
