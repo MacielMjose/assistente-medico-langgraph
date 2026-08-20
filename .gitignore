@@ -1,0 +1,4 @@
+.env
+src/models/__pycache__/*
+src/services/__pycache__/*
+.venv
