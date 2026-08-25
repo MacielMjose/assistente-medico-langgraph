@@ -23,9 +23,12 @@ langgraph-prebuilt==1.1.0
 langgraph-sdk==0.4.3
 langsmith==0.11.1
 openai==3.3.1
+numpy==2.5.2
 orjson==3.12.2
 ormsgpack==1.1.22
 packaging==26.3
+pgvector==0.5.0
+psycopg[binary]==3.3.4
 pyarrow==25.0.1
 pydantic==2.13.4
 pydantic_core==2.46.4

@@ -51,6 +51,17 @@ class ResultadoBusca(BaseModel):
     relevancia: float
 
 
+class ResultadoVetorial(BaseModel):
+    atendimento_id: int
+    paciente_id: int
+    ordem_chunk: int
+    similaridade: float
+    conteudo: str
+    condicao: str
+    especialidade_principal: str
+    data_atendimento: datetime
+
+
 class EntradaLog(BaseModel):
     sessao_id: str
     acao: str

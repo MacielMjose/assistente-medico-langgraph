@@ -181,19 +181,26 @@ def _alocar_pacientes_por_especialidade(
     demanda_por_especialidade: dict[str, int], n_pacientes: int
 ) -> dict[str, int]:
     total_episodios = sum(demanda_por_especialidade.values())
-    cotas = {
-        esp: max(1, round(demanda * n_pacientes / total_episodios))
+    brutas = {
+        esp: demanda * n_pacientes / total_episodios
         for esp, demanda in demanda_por_especialidade.items()
     }
-    desvio = n_pacientes - sum(cotas.values())
-    passo = 1 if desvio > 0 else -1
-    ordenadas = sorted(cotas, key=lambda esp: -demanda_por_especialidade[esp])
+    cotas = {esp: int(bruta) for esp, bruta in brutas.items()}
+    por_fracao = sorted(
+        cotas,
+        key=lambda esp: (-(brutas[esp] - cotas[esp]), demanda_por_especialidade[esp]),
+        reverse=False,
+    )
+    faltam = n_pacientes - sum(cotas.values())
     indice = 0
-    while desvio != 0 and ordenadas:
-        alvo = ordenadas[indice % len(ordenadas)]
-        if passo > 0 or cotas[alvo] > 1:
-            cotas[alvo] += passo
-            desvio -= passo
+    while faltam != 0 and por_fracao:
+        alvo = por_fracao[indice % len(por_fracao)]
+        if faltam > 0:
+            cotas[alvo] += 1
+            faltam -= 1
+        elif cotas[alvo] > 0:
+            cotas[alvo] -= 1
+            faltam += 1
         indice += 1
     return cotas
 
@@ -284,9 +291,13 @@ def rodar_etl(
     resumo.condicoes = len(mapa_condicoes)
     resumo.especialidades = len(ids_especialidades)
 
-    cotas = _alocar_pacientes_por_especialidade(
-        {esp: len(rows) for esp, rows in episodios_por_especialidade.items()}, n_pacientes
-    )
+    demanda_primaria = {esp: len(rows) for esp, rows in episodios_por_especialidade.items()}
+    cotas = _alocar_pacientes_por_especialidade(demanda_primaria, n_pacientes)
+    sem_cota = [esp for esp, cota in cotas.items() if cota == 0]
+    if sem_cota:
+        maior = max((e for e in cotas if e in episodios_por_especialidade), key=lambda e: cotas[e])
+        for esp in sem_cota:
+            episodios_por_especialidade[maior].extend(episodios_por_especialidade.pop(esp))
 
     condicoes_por_paciente: dict[int, set[int]] = defaultdict(set)
     dono_da_linha: list[int] = [0] * total_linhas
@@ -328,8 +339,8 @@ def rodar_etl(
     vinculos_para_inserir = []
     profs_por_especialidade: dict[str, list[int]] = {}
     proximo_profissional_id = 1
-    for especialidade in sorted(pacientes_por_especialidade):
-        quantidade = 2 + len(pacientes_por_especialidade[especialidade]) // 2_000
+    for especialidade in sorted(demanda_primaria):
+        quantidade = 2 + demanda_primaria[especialidade] // 2_000
         ids_locais = []
         especialidade_id = ids_especialidades[especialidade]
         for _ in range(quantidade):
