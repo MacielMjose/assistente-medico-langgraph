@@ -5,7 +5,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 RAIZ_PROJETO = Path(__file__).resolve().parents[2]
-CAMINHO_SCHEMA = RAIZ_PROJETO / "database" / "schema.sql"
+SCRIPTS_SQLITE_DIR = RAIZ_PROJETO / "database" / "scripts" / "sqlite"
 DB_PADRAO = RAIZ_PROJETO / "database" / "assistente_medico.db"
 
 
@@ -45,7 +45,8 @@ def sessao(caminho: str | Path | None = None):
         conexao.close()
 
 
-def aplicar_schema(conexao: sqlite3.Connection, caminho_schema: str | Path | None = None) -> None:
-    destino = Path(caminho_schema) if caminho_schema else CAMINHO_SCHEMA
-    conexao.executescript(destino.read_text(encoding="utf-8"))
+def aplicar_schema(conexao: sqlite3.Connection, caminho_scripts: str | Path | None = None) -> None:
+    diretorio = Path(caminho_scripts) if caminho_scripts else SCRIPTS_SQLITE_DIR
+    for arquivo in sorted(diretorio.glob("*.sql")):
+        conexao.executescript(arquivo.read_text(encoding="utf-8"))
     conexao.commit()

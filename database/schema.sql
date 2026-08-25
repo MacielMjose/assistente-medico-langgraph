@@ -1,7 +1,7 @@
 -- ============================================================================
 -- Schema simulado de prontuários médicos (SQLite)
 -- Projeto: assistente-medico-langgraph
--- Fonte dos dados: dataset_medpt_curado.parquet (384.084 QAs médico-paciente)
+-- *** ARQUIVO AUTO-GERADO *** Execute: python database/rebuild_schema.py
 --
 -- Convenções:
 --   * ids INTEGER PRIMARY KEY (rowid alias, sem autoincrement explícito)
@@ -11,30 +11,31 @@
 --     na migração p/ Postgres+pgvector vira vector(dim) + índice HNSW
 -- ============================================================================
 
+
 PRAGMA foreign_keys = ON;
 
--- ---------------------------------------------------------------------------
--- Dimensões normalizadas a partir do parquet
--- ---------------------------------------------------------------------------
+
 
 CREATE TABLE especialidades (
     id   INTEGER PRIMARY KEY,
     nome TEXT NOT NULL UNIQUE
 );
 
+
+
 CREATE TABLE condicoes (
     id   INTEGER PRIMARY KEY,
     nome TEXT NOT NULL UNIQUE
 );
+
+
 
 CREATE TABLE tipos_questao (
     id   INTEGER PRIMARY KEY,
     nome TEXT NOT NULL UNIQUE
 );
 
--- ---------------------------------------------------------------------------
--- Corpo clínico sintético (suporta o nó validar_com_profissional)
--- ---------------------------------------------------------------------------
+
 
 CREATE TABLE profissionais (
     id                       INTEGER PRIMARY KEY,
@@ -44,15 +45,15 @@ CREATE TABLE profissionais (
     criado_em                DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+
+
 CREATE TABLE profissional_especialidade (
     profissional_id  INTEGER NOT NULL REFERENCES profissionais(id) ON DELETE CASCADE,
     especialidade_id INTEGER NOT NULL REFERENCES especialidades(id),
     PRIMARY KEY (profissional_id, especialidade_id)
 );
 
--- ---------------------------------------------------------------------------
--- Pacientes sintéticos (LGPD-friendly: CPF mascarado, contato fake)
--- ---------------------------------------------------------------------------
+
 
 CREATE TABLE pacientes (
     id              INTEGER PRIMARY KEY,
@@ -64,7 +65,8 @@ CREATE TABLE pacientes (
     criado_em       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- Histórico de problemas/condições ativas por paciente
+
+
 CREATE TABLE paciente_condicao (
     paciente_id      INTEGER NOT NULL REFERENCES pacientes(id) ON DELETE CASCADE,
     condicao_id      INTEGER NOT NULL REFERENCES condicoes(id),
@@ -76,10 +78,7 @@ CREATE TABLE paciente_condicao (
 
 CREATE INDEX ix_paciente_condicao_condicao ON paciente_condicao(condicao_id);
 
--- ---------------------------------------------------------------------------
--- Atendimentos: 1 linha = 1 episódio QA do parquet (o "prontuário")
--- dataset_ref preserva rastreabilidade com o dataset original
--- ---------------------------------------------------------------------------
+
 
 CREATE TABLE atendimentos (
     id               INTEGER PRIMARY KEY,
@@ -98,9 +97,7 @@ CREATE INDEX ix_atendimentos_condicao     ON atendimentos(condicao_id);
 CREATE INDEX ix_atendimentos_profissional ON atendimentos(profissional_id);
 CREATE INDEX ix_atendimentos_data         ON atendimentos(data_atendimento);
 
--- ---------------------------------------------------------------------------
--- Exames complementares sintéticos (suporta o nó buscar_exames)
--- ---------------------------------------------------------------------------
+
 
 CREATE TABLE exames (
     id             INTEGER PRIMARY KEY,
@@ -112,9 +109,7 @@ CREATE TABLE exames (
 
 CREATE INDEX ix_exames_atendimento ON exames(atendimento_id);
 
--- ---------------------------------------------------------------------------
--- Agendamentos: histórico completo de consultas (passadas + futuras)
--- ---------------------------------------------------------------------------
+
 
 CREATE TABLE agendamentos (
     id                  INTEGER PRIMARY KEY,
@@ -123,8 +118,8 @@ CREATE TABLE agendamentos (
     especialidade_id    INTEGER NOT NULL REFERENCES especialidades(id),
     data_hora_agendada  DATETIME NOT NULL,
     data_hora_realizada DATETIME,
-    status              TEXT NOT NULL 
-        CONSTRAINT ck_agendamentos_status 
+    status              TEXT NOT NULL
+        CONSTRAINT ck_agendamentos_status
         CHECK (status IN ('agendada', 'confirmada', 'realizada', 'cancelada', 'nao_compareceu')),
     motivo              TEXT,
     observacoes         TEXT,
@@ -135,16 +130,13 @@ CREATE TABLE agendamentos (
     atualizado_em       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX ix_agendamentos_paciente ON agendamentos(paciente_id);
+CREATE INDEX ix_agendamentos_paciente     ON agendamentos(paciente_id);
 CREATE INDEX ix_agendamentos_profissional ON agendamentos(profissional_id);
 CREATE INDEX ix_agendamentos_especialidade ON agendamentos(especialidade_id);
-CREATE INDEX ix_agendamentos_data ON agendamentos(data_hora_agendada);
-CREATE INDEX ix_agendamentos_status ON agendamentos(status);
+CREATE INDEX ix_agendamentos_data         ON agendamentos(data_hora_agendada);
+CREATE INDEX ix_agendamentos_status       ON agendamentos(status);
 
--- ---------------------------------------------------------------------------
--- Chunks para RAG/embeddings futuros (estrutura espelha pgvector:
--- BLOB float32[] -> vector(dim); busca textual atual via atendimentos_fts)
--- ---------------------------------------------------------------------------
+
 
 CREATE TABLE prontuario_chunks (
     id               INTEGER PRIMARY KEY,
@@ -161,9 +153,7 @@ CREATE TABLE prontuario_chunks (
 
 CREATE INDEX ix_prontuario_chunks_atendimento ON prontuario_chunks(atendimento_id);
 
--- ---------------------------------------------------------------------------
--- Auditoria (suporta o nó registrar_log_auditoria)
--- ---------------------------------------------------------------------------
+
 
 CREATE TABLE log_auditoria (
     id        INTEGER  PRIMARY KEY,
@@ -176,10 +166,7 @@ CREATE TABLE log_auditoria (
 
 CREATE INDEX ix_log_auditoria_sessao ON log_auditoria(sessao_id);
 
--- ---------------------------------------------------------------------------
--- Busca textual full-text (análogo ao tsvector do Postgres p/ busca híbrida)
--- Tabela externa (content=): populada após a carga, sem triggers
--- ---------------------------------------------------------------------------
+
 
 CREATE VIRTUAL TABLE atendimentos_fts USING fts5(
     queixa,
@@ -189,9 +176,7 @@ CREATE VIRTUAL TABLE atendimentos_fts USING fts5(
     tokenize='unicode61 remove_diacritics 2'
 );
 
--- ---------------------------------------------------------------------------
--- Views de apoio aos nós do grafo LangGraph
--- ---------------------------------------------------------------------------
+
 
 CREATE VIEW vw_historico_paciente AS
 SELECT
@@ -212,6 +197,8 @@ JOIN tipos_questao tq ON tq.id = a.tipo_questao_id
 JOIN profissionais pr ON pr.id = a.profissional_id
 JOIN especialidades e ON e.id = pr.especialidade_principal_id;
 
+
+
 CREATE VIEW vw_exames_paciente AS
 SELECT
     e.id             AS exame_id,
@@ -223,6 +210,8 @@ SELECT
 FROM exames e
 JOIN atendimentos a ON a.id = e.atendimento_id;
 
+
+
 CREATE VIEW vw_estatisticas_base AS
 SELECT
     (SELECT COUNT(*) FROM pacientes)         AS pacientes,
@@ -233,3 +222,5 @@ SELECT
     (SELECT COUNT(*) FROM exames)            AS exames,
     (SELECT COUNT(*) FROM log_auditoria)     AS logs_auditoria,
     (SELECT COUNT(*) FROM agendamentos)      AS agendamentos;
+
+

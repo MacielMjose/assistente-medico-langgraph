@@ -28,7 +28,7 @@ if str(RAIZ_PROJETO) not in sys.path:
 from src.db.connection import DB_PADRAO
 
 DSN_PADRAO = "postgresql://medico:medico_dev@localhost:5433/assistente_medico"
-SCHEMA_PG = RAIZ_PROJETO / "database" / "schema_postgres.sql"
+SCRIPTS_PG_DIR = RAIZ_PROJETO / "database" / "scripts" / "postgres"
 TAMANHO_LOTE = 5_000
 
 ORDEM_DAS_TABELAS = [
@@ -134,7 +134,10 @@ def migrar(caminho_sqlite: Path, dsn: str, dimensoes: int) -> dict[str, int]:
             f"SQLite não encontrado em '{caminho_sqlite}'. Gere com: python database/etl_seed.py"
         )
     inicio = time.perf_counter()
-    ddl = SCHEMA_PG.read_text(encoding="utf-8").replace("__DIM__", str(dimensoes))
+    partes = []
+    for arquivo in sorted(SCRIPTS_PG_DIR.glob("*.sql")):
+        partes.append(arquivo.read_text(encoding="utf-8"))
+    ddl = "\n".join(partes).replace("__DIM__", str(dimensoes))
 
     origem = sqlite3.connect(f"file:{caminho_sqlite}?mode=ro", uri=True)
     origem.row_factory = sqlite3.Row
