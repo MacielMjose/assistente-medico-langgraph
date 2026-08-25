@@ -184,3 +184,44 @@ def test_inexistente_retorna_vazio(repositorio: RepositorioClinico):
     assert repositorio.obter_paciente(999_999_999) is None
     assert repositorio.obter_prontuarios(999_999_999) == []
     assert repositorio.buscar_paciente("QWERTYUIOP_INEXISTENTE") == []
+
+
+def test_agendamentos_gerados(mini_db: Path):
+    con = sqlite3.connect(mini_db)
+    total = con.execute("SELECT COUNT(*) FROM agendamentos").fetchone()[0]
+    con.close()
+    assert total > 0
+
+
+def test_agendamentos_status_validos(mini_db: Path):
+    con = sqlite3.connect(mini_db)
+    invalidos = con.execute(
+        """
+        SELECT COUNT(*) FROM agendamentos 
+        WHERE status NOT IN ('agendada', 'confirmada', 'realizada', 'cancelada', 'nao_compareceu')
+        """
+    ).fetchone()[0]
+    con.close()
+    assert invalidos == 0
+
+
+def test_agendamentos_fk_validas(mini_db: Path):
+    con = sqlite3.connect(mini_db)
+    assert con.execute("PRAGMA foreign_key_check").fetchall() == []
+    con.close()
+
+
+def test_repository_agendamentos(repositorio: RepositorioClinico):
+    pacientes = repositorio.buscar_paciente("a", limite=1)
+    if pacientes:
+        agendamentos = repositorio.obter_agendamentos(pacientes[0].id)
+        assert isinstance(agendamentos, list)
+        if agendamentos:
+            assert agendamentos[0].paciente_id == pacientes[0].id
+
+
+def test_estatisticas_inclui_agendamentos(mini_db: Path):
+    con = sqlite3.connect(mini_db)
+    colunas = [col[0] for col in con.execute("SELECT * FROM vw_estatisticas_base").description]
+    con.close()
+    assert "agendamentos" in colunas

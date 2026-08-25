@@ -58,6 +58,25 @@ ORDEM_DAS_TABELAS = [
     ),
     ("exames", ["id", "atendimento_id", "nome_exame", "data_exame", "resultado"]),
     (
+        "agendamentos",
+        [
+            "id",
+            "paciente_id",
+            "profissional_id",
+            "especialidade_id",
+            "data_hora_agendada",
+            "data_hora_realizada",
+            "status",
+            "motivo",
+            "observacoes",
+            "duracao_minutos",
+            "lembrete_enviado",
+            "recorrente",
+            "criado_em",
+            "atualizado_em",
+        ],
+    ),
+    (
         "prontuario_chunks",
         ["id", "atendimento_id", "ordem_chunk", "conteudo", "embedding", "modelo_embedding", "dimensoes"],
     ),
@@ -72,12 +91,13 @@ TABELAS_COM_IDENTIDADE = [
     "pacientes",
     "atendimentos",
     "exames",
+    "agendamentos",
     "prontuario_chunks",
     "log_auditoria",
 ]
 
 COLUNAS_DATA = {"data_nascimento", "data_diagnostico", "data_exame"}
-COLUNAS_DATETIME = {"data_atendimento", "criado_em"}
+COLUNAS_DATETIME = {"data_atendimento", "data_hora_agendada", "data_hora_realizada", "criado_em", "atualizado_em"}
 
 
 def _preparar_valor(coluna: str, valor):
@@ -128,7 +148,7 @@ def migrar(caminho_sqlite: Path, dsn: str, dimensoes: int) -> dict[str, int]:
                 DROP VIEW IF EXISTS
                     vw_historico_paciente, vw_exames_paciente, vw_estatisticas_base;
                 DROP TABLE IF EXISTS
-                    log_auditoria, prontuario_chunks, exames, atendimentos,
+                    log_auditoria, prontuario_chunks, agendamentos, exames, atendimentos,
                     paciente_condicao, pacientes, profissional_especialidade,
                     profissionais, tipos_questao, condicoes, especialidades
                 CASCADE;

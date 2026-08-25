@@ -92,6 +92,22 @@ RESULTADOS_EXAME = [
     "Inconclusivo - repetir exame",
 ]
 
+STATUS_AGENDAMENTO = ("realizada", "cancelada", "nao_compareceu", "agendada", "confirmada")
+PESOS_STATUS_AGEND = (60, 15, 10, 10, 5)
+
+MOTIVOS_CONSULTA = [
+    "Consulta de rotina",
+    "Retorno para acompanhamento",
+    "Exame de rotina",
+    "Queixa de dor",
+    "Sintomas gripais",
+    "Exame preventivo",
+    "Avaliação pré-operatória",
+    "Renovação de receita",
+    "Dor de cabeça persistente",
+    "Problemas gastrointestinais",
+]
+
 SQL_INSERIR_ATENDIMENTO = """
     INSERT INTO atendimentos
         (dataset_ref, paciente_id, profissional_id, condicao_id,
@@ -108,6 +124,7 @@ class ResumoETL:
     condicoes: int = 0
     especialidades: int = 0
     exames: int = 0
+    agendamentos: int = 0
     duracao_segundos: float = 0.0
     avisos: list[str] = field(default_factory=list)
 
@@ -120,6 +137,7 @@ class ResumoETL:
             f"condições:      {self.condicoes:>8}",
             f"especialidades: {self.especialidades:>8}",
             f"exames:         {self.exames:>8}",
+            f"agendamentos:   {self.agendamentos:>8}",
             f"duração:        {self.duracao_segundos:.1f}s",
         ]
         if self.avisos:
@@ -461,6 +479,74 @@ def rodar_etl(
         SELECT id, queixa, conduta FROM atendimentos
         """
     )
+
+    print("[etl] fase 3: agendamentos sintéticos...")
+    agendamentos_para_inserir = []
+    for pid in range(1, n_pacientes + 1):
+        n_agendamentos = rng.randint(2, 8)
+        especialidades_paciente = list(
+            set(
+                row[0]
+                for row in conexao.execute(
+                    """
+                    SELECT DISTINCT e.nome
+                    FROM atendimentos a
+                    JOIN profissionais pr ON pr.id = a.profissional_id
+                    JOIN especialidades e ON e.id = pr.especialidade_principal_id
+                    WHERE a.paciente_id = ?
+                    """,
+                    (pid,),
+                ).fetchall()
+            )
+        )
+        profissionais_paciente = conexao.execute(
+            """
+            SELECT DISTINCT pr.id, pr.especialidade_principal_id
+            FROM atendimentos a
+            JOIN profissionais pr ON pr.id = a.profissional_id
+            WHERE a.paciente_id = ?
+            """,
+            (pid,),
+        ).fetchall()
+        if not profissionais_paciente:
+            continue
+        for _ in range(n_agendamentos):
+            dias_atras = rng.randint(0, 730)
+            data_agendada = agora - timedelta(days=dias_atras)
+            if data_agendada.date() < date.today():
+                status = rng.choices(
+                    STATUS_AGENDAMENTO[:3], weights=PESOS_STATUS_AGEND[:3]
+                )[0]
+            else:
+                status = rng.choices(
+                    STATUS_AGENDAMENTO[3:], weights=PESOS_STATUS_AGEND[3:]
+                )[0]
+            data_realizada = data_agendada if status == "realizada" else None
+            profissional = rng.choice(profissionais_paciente)
+            agendamentos_para_inserir.append((
+                pid,
+                profissional[0],
+                profissional[1],
+                data_agendada.isoformat(sep=" ", timespec="seconds"),
+                data_realizada.isoformat(sep=" ", timespec="seconds") if data_realizada else None,
+                status,
+                rng.choice(MOTIVOS_CONSULTA),
+                None,
+                rng.choice((15, 30, 45, 60)),
+                0,
+                0,
+            ))
+    conexao.executemany(
+        """
+        INSERT INTO agendamentos
+            (paciente_id, profissional_id, especialidade_id, data_hora_agendada,
+             data_hora_realizada, status, motivo, observacoes, duracao_minutos,
+             lembrete_enviado, recorrente)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        agendamentos_para_inserir,
+    )
+    resumo.agendamentos = len(agendamentos_para_inserir)
 
     violacoes = conexao.execute("PRAGMA foreign_key_check").fetchall()
     if violacoes:

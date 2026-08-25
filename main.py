@@ -58,7 +58,7 @@ def registrar_log_auditoria(state: dict) -> dict:
     return state
 
 
-workflow = StateGraph(EstadoClima)
+workflow = StateGraph(DadosPaciente)
 
 workflow.add_node("obter_entrada", obter_entrada)
 workflow.add_node("validar_dados_paciente", validar_dados_paciente)

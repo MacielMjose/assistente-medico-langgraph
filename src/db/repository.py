@@ -2,6 +2,7 @@ import json
 
 from src.db.connection import sessao
 from src.db.models import (
+    Agendamento,
     Atendimento,
     CondicaoPaciente,
     EntradaLog,
@@ -148,3 +149,77 @@ class RepositorioClinico:
         with self._abrir() as con:
             linha = con.execute("SELECT * FROM vw_estatisticas_base").fetchone()
         return EstatisticasBase(**dict(linha))
+
+    def obter_agendamentos(
+        self, paciente_id: int, limite: int = 50
+    ) -> list[Agendamento]:
+        with self._abrir() as con:
+            linhas = con.execute(
+                """
+                SELECT id, paciente_id, profissional_id, especialidade_id,
+                       data_hora_agendada, data_hora_realizada, status, motivo,
+                       observacoes, duracao_minutos, lembrete_enviado, recorrente,
+                       criado_em, atualizado_em
+                FROM agendamentos
+                WHERE paciente_id = :paciente_id
+                ORDER BY data_hora_agendada DESC
+                LIMIT :limite
+                """,
+                {"paciente_id": paciente_id, "limite": limite},
+            ).fetchall()
+        return [Agendamento(**dict(linha)) for linha in linhas]
+
+    def obter_agendamentos_por_periodo(
+        self, data_inicio: str, data_fim: str, status: str | None = None
+    ) -> list[Agendamento]:
+        filtros = ""
+        parametros: dict = {"data_inicio": data_inicio, "data_fim": data_fim}
+        if status:
+            filtros = "AND status = :status"
+            parametros["status"] = status
+        sql = f"""
+            SELECT id, paciente_id, profissional_id, especialidade_id,
+                   data_hora_agendada, data_hora_realizada, status, motivo,
+                   observacoes, duracao_minutos, lembrete_enviado, recorrente,
+                   criado_em, atualizado_em
+            FROM agendamentos
+            WHERE data_hora_agendada BETWEEN :data_inicio AND :data_fim
+            {filtros}
+            ORDER BY data_hora_agendada
+        """
+        with self._abrir() as con:
+            linhas = con.execute(sql, parametros).fetchall()
+        return [Agendamento(**dict(linha)) for linha in linhas]
+
+    def criar_agendamento(self, dados: dict) -> int:
+        with self._abrir() as con:
+            cursor = con.execute(
+                """
+                INSERT INTO agendamentos
+                    (paciente_id, profissional_id, especialidade_id, data_hora_agendada,
+                     status, motivo, observacoes, duracao_minutos, lembrete_enviado, recorrente)
+                VALUES
+                    (:paciente_id, :profissional_id, :especialidade_id, :data_hora_agendada,
+                     :status, :motivo, :observacoes, :duracao_minutos, :lembrete_enviado, :recorrente)
+                """,
+                dados,
+            )
+            con.commit()
+            return cursor.lastrowid
+
+    def atualizar_status_agendamento(
+        self, agendamento_id: int, status: str, data_hora_realizada: str | None = None
+    ) -> bool:
+        with self._abrir() as con:
+            con.execute(
+                """
+                UPDATE agendamentos
+                SET status = :status,
+                    data_hora_realizada = :data_hora_realizada,
+                    atualizado_em = CURRENT_TIMESTAMP
+                WHERE id = :id
+                """,
+                {"id": agendamento_id, "status": status, "data_hora_realizada": data_hora_realizada},
+            )
+            con.commit()
+            return con.total_changes > 0

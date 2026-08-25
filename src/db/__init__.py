@@ -1,5 +1,6 @@
 from src.db.connection import conectar, aplicar_schema, resolver_caminho_db, sessao
 from src.db.models import (
+    Agendamento,
     Atendimento,
     CondicaoPaciente,
     EntradaLog,
@@ -20,6 +21,7 @@ __all__ = [
     "Atendimento",
     "CondicaoPaciente",
     "Exame",
+    "Agendamento",
     "ResultadoBusca",
     "EntradaLog",
     "EstatisticasBase",

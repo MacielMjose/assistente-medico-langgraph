@@ -40,6 +40,23 @@ class Exame(BaseModel):
     resultado: str
 
 
+class Agendamento(BaseModel):
+    id: int
+    paciente_id: int
+    profissional_id: int
+    especialidade_id: int
+    data_hora_agendada: datetime
+    data_hora_realizada: datetime | None = None
+    status: str
+    motivo: str | None = None
+    observacoes: str | None = None
+    duracao_minutos: int = 30
+    lembrete_enviado: bool = False
+    recorrente: bool = False
+    criado_em: datetime | None = None
+    atualizado_em: datetime | None = None
+
+
 class ResultadoBusca(BaseModel):
     atendimento_id: int
     paciente_id: int
@@ -76,3 +93,4 @@ class EstatisticasBase(BaseModel):
     especialidades: int
     exames: int
     logs_auditoria: int
+    agendamentos: int
