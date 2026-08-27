@@ -1,25 +1,30 @@
-"""ETL: dataset_medpt_curado.parquet -> SQLite de prontuários simulados.
+"""ETL: dataset_medpt_curado.parquet -> PostgreSQL (17 + pgvector).
 
 Uso:
-    python database/etl_seed.py                          # carga completa (10.000 pacientes)
-    python database/etl_seed.py --limite 50000           # amostra reduzida p/ iteração rápida
+    python database/etl_seed.py                               # carga completa (10.000 pacientes)
+    python database/etl_seed.py --limite 50000                # amostra reduzida p/ iteração rápida
     python database/etl_seed.py --n-pacientes 1000 --seed 7
+    MEDPT_PG_DSN=postgresql://... python database/etl_seed.py
 
 Cada linha do parquet torna-se um episódio de atendimento. Os episódios são
 distribuídos entre pacientes sintéticos por especialidade principal (primeiro
 átomo antes da vírgula), formando históricos coerentes e determinísticos.
+
+Sem o container PostgreSQL, a carga falha:
+    docker compose -f database/docker-compose.yml up -d
 """
 
 import argparse
 import random
-import sqlite3
 import sys
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
+import psycopg
+from psycopg.rows import dict_row
 import pyarrow.parquet as pq
 from faker import Faker
 
@@ -27,7 +32,7 @@ RAIZ_PROJETO = Path(__file__).resolve().parents[1]
 if str(RAIZ_PROJETO) not in sys.path:
     sys.path.insert(0, str(RAIZ_PROJETO))
 
-from src.db.connection import aplicar_schema
+from src.db.connection import recriar_schema, resolver_dsn, violacoes_de_integridade
 
 SEED_PADRAO = 42
 N_PACIENTES_PADRAO = 10_000
@@ -35,7 +40,6 @@ TAMANHO_LOTE = 25_000
 
 DIRETORIO_DB = Path(__file__).resolve().parent
 PARQUET_PADRAO = DIRETORIO_DB / "dataset_medpt_curado.parquet"
-DB_PADRAO = DIRETORIO_DB / "assistente_medico.db"
 
 UFs = ["SP", "RJ", "MG", "RS", "PR", "BA", "PE", "CE", "DF", "SC"]
 DDDS = ["11", "21", "31", "41", "51", "61", "71", "81", "85"]
@@ -108,13 +112,6 @@ MOTIVOS_CONSULTA = [
     "Problemas gastrointestinais",
 ]
 
-SQL_INSERIR_ATENDIMENTO = """
-    INSERT INTO atendimentos
-        (dataset_ref, paciente_id, profissional_id, condicao_id,
-         tipo_questao_id, data_atendimento, queixa, conduta)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-"""
-
 
 @dataclass
 class ResumoETL:
@@ -184,15 +181,15 @@ class _GeradorDePopulacao:
                 break
         nascimento = _gerar_data_nascimento(faixa_etaria, self._rng, date.today())
         telefone = f"+55 ({self._rng.choice(DDDS)}) 9{self._rng.randint(10_000_000, 99_999_999)}"
-        return (paciente_id, nome, mascarado, nascimento, sexo, telefone)
+        return (nome, mascarado, nascimento, sexo, telefone)
 
-    def novo_profissional(self, profissional_id: int, especialidade_id: int) -> tuple:
+    def novo_profissional(self, profissional_id: int) -> tuple:
         while True:
             registro = f"{self._rng.choice(UFs)}-{self._rng.randint(100_000, 999_999)}"
             if registro not in self._registros_usados:
                 self._registros_usados.add(registro)
                 break
-        return (profissional_id, self._fake.name(), registro, especialidade_id)
+        return (self._fake.name(), registro)
 
 
 def _alocar_pacientes_por_especialidade(
@@ -221,6 +218,15 @@ def _alocar_pacientes_por_especialidade(
             faltam += 1
         indice += 1
     return cotas
+
+
+def _executar_muitos(conexao: psycopg.Connection, sql: str, linhas: list) -> None:
+    """Variante de executemany: psycopg3 não aceita listas em execute()."""
+
+    if not linhas:
+        return
+    with conexao.cursor() as cursor:
+        cursor.executemany(sql, linhas)
 
 
 def _preparar_dimensoes_e_alocacao(parquet: pq.ParquetFile, total_linhas: int):
@@ -258,7 +264,7 @@ def _preparar_dimensoes_e_alocacao(parquet: pq.ParquetFile, total_linhas: int):
 
 def rodar_etl(
     caminho_parquet: str | Path = PARQUET_PADRAO,
-    caminho_db: str | Path = DB_PADRAO,
+    dsn: str | None = None,
     n_pacientes: int = N_PACIENTES_PADRAO,
     limite_linhas: int | None = None,
     seed: int = SEED_PADRAO,
@@ -267,14 +273,14 @@ def rodar_etl(
     resumo = ResumoETL()
     gerador = _GeradorDePopulacao(seed)
     rng = random.Random(seed + 1)
-    caminho_db = Path(caminho_db)
-    caminho_db.parent.mkdir(parents=True, exist_ok=True)
-    if caminho_db.exists():
-        caminho_db.unlink()
+    dsn_resolvido = resolver_dsn(dsn)
 
     parquet = pq.ParquetFile(caminho_parquet)
     total_linhas = min(parquet.metadata.num_rows, limite_linhas or parquet.metadata.num_rows)
-    agora = datetime.now()
+    agora = datetime.now(timezone.utc)
+
+    print("[etl] recriando schema em", dsn_resolvido.split("@")[-1])
+    recriar_schema(dsn_resolvido)
 
     print(f"[etl] fase 0: dimensões e alocação ({total_linhas:,} episódios)...".replace(",", "."))
     (
@@ -286,292 +292,297 @@ def rodar_etl(
         rotulo_da_condicao,
     ) = _preparar_dimensoes_e_alocacao(parquet, total_linhas)
 
-    conexao = sqlite3.connect(caminho_db)
-    conexao.execute("PRAGMA journal_mode = OFF")
-    conexao.execute("PRAGMA synchronous = OFF")
-    conexao.execute("PRAGMA temp_store = MEMORY")
-    conexao.execute("PRAGMA cache_size = -64000")
-    conexao.execute("PRAGMA foreign_keys = ON")
-    aplicar_schema(conexao)
-
-    conexao.executemany(
-        "INSERT INTO especialidades (id, nome) VALUES (?, ?)",
-        [(id_, nome) for nome, id_ in sorted(ids_especialidades.items(), key=lambda item: item[1])],
-    )
-    conexao.executemany(
-        "INSERT INTO tipos_questao (id, nome) VALUES (?, ?)",
-        [(id_, nome) for nome, id_ in mapa_tipos.items()],
-    )
-    conexao.executemany(
-        "INSERT INTO condicoes (id, nome) VALUES (?, ?)",
-        [(id_, nome) for nome, id_ in mapa_condicoes.items()],
-    )
-    resumo.condicoes = len(mapa_condicoes)
-    resumo.especialidades = len(ids_especialidades)
-
-    demanda_primaria = {esp: len(rows) for esp, rows in episodios_por_especialidade.items()}
-    cotas = _alocar_pacientes_por_especialidade(demanda_primaria, n_pacientes)
-    sem_cota = [esp for esp, cota in cotas.items() if cota == 0]
-    if sem_cota:
-        maior = max((e for e in cotas if e in episodios_por_especialidade), key=lambda e: cotas[e])
-        for esp in sem_cota:
-            episodios_por_especialidade[maior].extend(episodios_por_especialidade.pop(esp))
-
-    condicoes_por_paciente: dict[int, set[int]] = defaultdict(set)
-    dono_da_linha: list[int] = [0] * total_linhas
-    proximo_paciente_id = 1
-    pacientes_por_especialidade: dict[str, list[int]] = {}
-    for especialidade in sorted(episodios_por_especialidade):
-        linhas_da_especialidade = episodios_por_especialidade[especialidade]
-        rng.shuffle(linhas_da_especialidade)
-        pacientes_da_especialidade = list(
-            range(proximo_paciente_id, proximo_paciente_id + cotas[especialidade])
+    conexao = psycopg.connect(dsn_resolvido, autocommit=False, row_factory=dict_row)
+    try:
+        _executar_muitos(
+            conexao,
+            "INSERT INTO especialidades (id, nome) VALUES (%s, %s)",
+            [(id_, nome) for nome, id_ in sorted(ids_especialidades.items(), key=lambda item: item[1])],
         )
-        proximo_paciente_id += len(pacientes_da_especialidade)
-        for posicao, linha in enumerate(linhas_da_especialidade):
-            dono = pacientes_da_especialidade[posicao % len(pacientes_da_especialidade)]
-            dono_da_linha[linha] = dono
-            condicoes_por_paciente[dono].add(condicao_da_linha[linha])
-        pacientes_por_especialidade[especialidade] = pacientes_da_especialidade
-
-    pacientes_para_inserir = []
-    base_temporal: dict[int, datetime] = {}
-    cursor_temporal: dict[int, int] = {}
-    for pid in range(1, n_pacientes + 1):
-        nomes = {rotulo_da_condicao[cid] for cid in condicoes_por_paciente.get(pid, set())}
-        faixa = _faixa_etaria_para(nomes)
-        pacientes_para_inserir.append(gerador.novo_paciente(pid, faixa))
-        base_temporal[pid] = agora - timedelta(days=rng.randint(365, 2190))
-        cursor_temporal[pid] = 0
-    del condicoes_por_paciente
-    conexao.executemany(
-        """
-        INSERT INTO pacientes (id, nome, cpf_mascarado, data_nascimento, sexo, telefone_mock)
-        VALUES (?, ?, ?, ?, ?, ?)
-        """,
-        pacientes_para_inserir,
-    )
-    resumo.pacientes = len(pacientes_para_inserir)
-
-    profissionais_para_inserir = []
-    vinculos_para_inserir = []
-    profs_por_especialidade: dict[str, list[int]] = {}
-    proximo_profissional_id = 1
-    for especialidade in sorted(demanda_primaria):
-        quantidade = 2 + demanda_primaria[especialidade] // 2_000
-        ids_locais = []
-        especialidade_id = ids_especialidades[especialidade]
-        for _ in range(quantidade):
-            profissionais_para_inserir.append(
-                gerador.novo_profissional(proximo_profissional_id, especialidade_id)
-            )
-            ids_locais.append(proximo_profissional_id)
-            vinculos_para_inserir.append((proximo_profissional_id, especialidade_id))
-            proximo_profissional_id += 1
-        profs_por_especialidade[especialidade] = ids_locais
-        if rng.random() < 0.30:
-            outra = rng.choice(list(ids_especialidades.values()))
-            vinculos_para_inserir.append((ids_locais[0], outra))
-    conexao.executemany(
-        """
-        INSERT INTO profissionais (id, nome, registro_conselho, especialidade_principal_id)
-        VALUES (?, ?, ?, ?)
-        """,
-        profissionais_para_inserir,
-    )
-    conexao.executemany(
-        "INSERT OR IGNORE INTO profissional_especialidade (profissional_id, especialidade_id) VALUES (?, ?)",
-        vinculos_para_inserir,
-    )
-    resumo.profissionais = len(profissionais_para_inserir)
-
-    print("[etl] fase 1: streaming dos episódios de atendimento...")
-    colunas = ["id", "question", "answer", "condition", "medical_specialty", "question_type"]
-    inseridos = 0
-    lote: list[tuple] = []
-    concluido = False
-    for bloco in parquet.iter_batches(batch_size=20_000, columns=colunas):
-        dados = bloco.to_pydict()
-        for posicao in range(bloco.num_rows):
-            if inseridos >= total_linhas:
-                concluido = True
-                break
-            paciente_id = dono_da_linha[inseridos]
-            offset = cursor_temporal[paciente_id]
-            cursor_temporal[paciente_id] = offset + rng.randint(1, 365)
-            momento = base_temporal[paciente_id] + timedelta(days=offset)
-            if momento > agora:
-                momento = agora - timedelta(seconds=rng.randint(0, 86_399))
-            atomos = _dividir_especialidades(dados["medical_specialty"][posicao])
-            profissional_id = rng.choice(profs_por_especialidade[atomos[0]])
-            lote.append(
-                (
-                    int(dados["id"][posicao]),
-                    paciente_id,
-                    profissional_id,
-                    mapa_condicoes[dados["condition"][posicao]],
-                    mapa_tipos[dados["question_type"][posicao]],
-                    momento.isoformat(sep=" ", timespec="seconds"),
-                    dados["question"][posicao],
-                    dados["answer"][posicao],
-                )
-            )
-            inseridos += 1
-            if len(lote) >= TAMANHO_LOTE:
-                conexao.executemany(SQL_INSERIR_ATENDIMENTO, lote)
-                print(f"[etl]   {inseridos:,} episódios...".replace(",", "."))
-                lote.clear()
-        if concluido:
-            break
-    if lote:
-        conexao.executemany(SQL_INSERIR_ATENDIMENTO, lote)
-        lote.clear()
-    resumo.atendimentos = inseridos
-    del dono_da_linha, condicao_da_linha, episodios_por_especialidade
-
-    print("[etl] fase 2: históricos, exames e índice full-text...")
-    historicos = conexao.execute(
-        """
-        SELECT paciente_id, condicao_id, MIN(data_atendimento) AS primeiro
-        FROM atendimentos
-        GROUP BY paciente_id, condicao_id
-        """
-    ).fetchall()
-    conexao.executemany(
-        "INSERT INTO paciente_condicao (paciente_id, condicao_id, data_diagnostico, status) VALUES (?, ?, ?, ?)",
-        [
-            (
-                pid,
-                cid,
-                datetime.fromisoformat(primeiro).date().isoformat(),
-                rng.choices(STATUS_CONDICAO, weights=PESOS_STATUS)[0],
-            )
-            for pid, cid, primeiro in historicos
-        ],
-    )
-    del historicos
-
-    exames_para_inserir = []
-    for atendimento_id, momento_bruto in conexao.execute(
-        "SELECT id, data_atendimento FROM atendimentos"
-    ).fetchall():
-        if rng.random() > 0.28:
-            continue
-        dia_base = datetime.fromisoformat(momento_bruto)
-        for _ in range(rng.choice((1, 1, 2))):
-            dia_exame = min(dia_base + timedelta(days=rng.randint(0, 7)), agora).date()
-            resultado = rng.choices(RESULTADOS_EXAME, weights=(38, 27, 15, 10, 10), k=1)[0]
-            exames_para_inserir.append(
-                (atendimento_id, rng.choice(CATALOGO_EXAMES), dia_exame.isoformat(), resultado)
-            )
-    conexao.executemany(
-        """
-        INSERT INTO exames (atendimento_id, nome_exame, data_exame, resultado)
-        VALUES (?, ?, ?, ?)
-        """,
-        exames_para_inserir,
-    )
-    resumo.exames = len(exames_para_inserir)
-
-    conexao.execute(
-        """
-        INSERT INTO atendimentos_fts (rowid, queixa, conduta)
-        SELECT id, queixa, conduta FROM atendimentos
-        """
-    )
-
-    print("[etl] fase 3: agendamentos sintéticos...")
-    agendamentos_para_inserir = []
-    for pid in range(1, n_pacientes + 1):
-        n_agendamentos = rng.randint(2, 8)
-        especialidades_paciente = list(
-            set(
-                row[0]
-                for row in conexao.execute(
-                    """
-                    SELECT DISTINCT e.nome
-                    FROM atendimentos a
-                    JOIN profissionais pr ON pr.id = a.profissional_id
-                    JOIN especialidades e ON e.id = pr.especialidade_principal_id
-                    WHERE a.paciente_id = ?
-                    """,
-                    (pid,),
-                ).fetchall()
-            )
+        _executar_muitos(
+            conexao,
+            "INSERT INTO tipos_questao (id, nome) VALUES (%s, %s)",
+            [(id_, nome) for nome, id_ in mapa_tipos.items()],
         )
-        profissionais_paciente = conexao.execute(
+        _executar_muitos(
+            conexao,
+            "INSERT INTO condicoes (id, nome) VALUES (%s, %s)",
+            [(id_, nome) for nome, id_ in mapa_condicoes.items()],
+        )
+        resumo.condicoes = len(mapa_condicoes)
+        resumo.especialidades = len(ids_especialidades)
+
+        demanda_primaria = {esp: len(rows) for esp, rows in episodios_por_especialidade.items()}
+        cotas = _alocar_pacientes_por_especialidade(demanda_primaria, n_pacientes)
+        sem_cota = [esp for esp, cota in cotas.items() if cota == 0]
+        if sem_cota:
+            maior = max((e for e in cotas if e in episodios_por_especialidade), key=lambda e: cotas[e])
+            for esp in sem_cota:
+                episodios_por_especialidade[maior].extend(episodios_por_especialidade.pop(esp))
+
+        condicoes_por_paciente: dict[int, set[int]] = defaultdict(set)
+        dono_da_linha: list[int] = [0] * total_linhas
+        proximo_paciente_id = 1
+        for especialidade in sorted(episodios_por_especialidade):
+            linhas_da_especialidade = episodios_por_especialidade[especialidade]
+            rng.shuffle(linhas_da_especialidade)
+            pacientes_da_especialidade = list(
+                range(proximo_paciente_id, proximo_paciente_id + cotas[especialidade])
+            )
+            proximo_paciente_id += len(pacientes_da_especialidade)
+            for posicao, linha in enumerate(linhas_da_especialidade):
+                dono = pacientes_da_especialidade[posicao % len(pacientes_da_especialidade)]
+                dono_da_linha[linha] = dono
+                condicoes_por_paciente[dono].add(condicao_da_linha[linha])
+        del cotas, sem_cota
+
+        pacientes_para_inserir = []
+        base_temporal: dict[int, datetime] = {}
+        cursor_temporal: dict[int, int] = {}
+        for pid in range(1, n_pacientes + 1):
+            nomes = {rotulo_da_condicao[cid] for cid in condicoes_por_paciente.get(pid, set())}
+            faixa = _faixa_etaria_para(nomes)
+            pacientes_para_inserir.append((pid, *gerador.novo_paciente(pid, faixa)))
+            base_temporal[pid] = agora - timedelta(days=rng.randint(365, 2190))
+            cursor_temporal[pid] = 0
+        del condicoes_por_paciente
+        _executar_muitos(
+            conexao,
             """
-            SELECT DISTINCT pr.id, pr.especialidade_principal_id
-            FROM atendimentos a
-            JOIN profissionais pr ON pr.id = a.profissional_id
-            WHERE a.paciente_id = ?
+            INSERT INTO pacientes (id, nome, cpf_mascarado, data_nascimento, sexo, telefone_mock)
+            VALUES (%s, %s, %s, %s, %s, %s)
             """,
-            (pid,),
+            pacientes_para_inserir,
+        )
+        resumo.pacientes = len(pacientes_para_inserir)
+
+        profissionais_para_inserir = []
+        vinculos_para_inserir = []
+        profs_por_especialidade: dict[str, list[int]] = {}
+        proximo_profissional_id = 1
+        for especialidade in sorted(demanda_primaria):
+            quantidade = 2 + demanda_primaria[especialidade] // 2_000
+            ids_locais = []
+            especialidade_id = ids_especialidades[especialidade]
+            for _ in range(quantidade):
+                profissionais_para_inserir.append(
+                    (proximo_profissional_id, *gerador.novo_profissional(proximo_profissional_id), especialidade_id)
+                )
+                ids_locais.append(proximo_profissional_id)
+                vinculos_para_inserir.append((proximo_profissional_id, especialidade_id))
+                proximo_profissional_id += 1
+            profs_por_especialidade[especialidade] = ids_locais
+            if rng.random() < 0.30:
+                outra = rng.choice(list(ids_especialidades.values()))
+                vinculos_para_inserir.append((ids_locais[0], outra))
+        _executar_muitos(
+            conexao,
+            """
+            INSERT INTO profissionais (id, nome, registro_conselho, especialidade_principal_id)
+            VALUES (%s, %s, %s, %s)
+            """,
+            profissionais_para_inserir,
+        )
+        _executar_muitos(
+            conexao,
+            "INSERT INTO profissional_especialidade (profissional_id, especialidade_id) VALUES (%s, %s) "
+            "ON CONFLICT DO NOTHING",
+            vinculos_para_inserir,
+        )
+        resumo.profissionais = len(profissionais_para_inserir)
+
+        print("[etl] fase 1: streaming dos episódios de atendimento...")
+        colunas = ["id", "question", "answer", "condition", "medical_specialty", "question_type"]
+        inseridos = 0
+        lote: list[tuple] = []
+        concluido = False
+        for bloco in parquet.iter_batches(batch_size=20_000, columns=colunas):
+            dados = bloco.to_pydict()
+            for posicao in range(bloco.num_rows):
+                if inseridos >= total_linhas:
+                    concluido = True
+                    break
+                paciente_id = dono_da_linha[inseridos]
+                offset = cursor_temporal[paciente_id]
+                cursor_temporal[paciente_id] = offset + rng.randint(1, 365)
+                momento = base_temporal[paciente_id] + timedelta(days=offset)
+                if momento > agora:
+                    momento = agora - timedelta(seconds=rng.randint(0, 86_399))
+                atomos = _dividir_especialidades(dados["medical_specialty"][posicao])
+                profissional_id = rng.choice(profs_por_especialidade[atomos[0]])
+                lote.append(
+                    (
+                        int(dados["id"][posicao]),
+                        paciente_id,
+                        profissional_id,
+                        mapa_condicoes[dados["condition"][posicao]],
+                        mapa_tipos[dados["question_type"][posicao]],
+                        momento,
+                        dados["question"][posicao],
+                        dados["answer"][posicao],
+                    )
+                )
+                inseridos += 1
+                if len(lote) >= TAMANHO_LOTE:
+                    _executar_muitos(
+                        conexao,
+                        """
+                        INSERT INTO atendimentos
+                            (dataset_ref, paciente_id, profissional_id, condicao_id,
+                             tipo_questao_id, data_atendimento, queixa, conduta)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        """,
+                        lote,
+                    )
+                    conexao.commit()
+                    print(f"[etl]   {inseridos:,} episódios...".replace(",", "."))
+                    lote.clear()
+            if concluido:
+                break
+        if lote:
+            _executar_muitos(
+                conexao,
+                """
+                INSERT INTO atendimentos
+                    (dataset_ref, paciente_id, profissional_id, condicao_id,
+                     tipo_questao_id, data_atendimento, queixa, conduta)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                lote,
+            )
+            conexao.commit()
+            lote.clear()
+        resumo.atendimentos = inseridos
+        del dono_da_linha, condicao_da_linha, episodios_por_especialidade
+
+        print("[etl] fase 2: históricos e exames...")
+        historicos = conexao.execute(
+            """
+            SELECT paciente_id, condicao_id, MIN(data_atendimento) AS primeiro
+            FROM atendimentos
+            GROUP BY paciente_id, condicao_id
+            """
         ).fetchall()
-        if not profissionais_paciente:
-            continue
-        for _ in range(n_agendamentos):
-            dias_atras = rng.randint(0, 730)
-            data_agendada = agora - timedelta(days=dias_atras)
-            if data_agendada.date() < date.today():
-                status = rng.choices(
-                    STATUS_AGENDAMENTO[:3], weights=PESOS_STATUS_AGEND[:3]
-                )[0]
-            else:
-                status = rng.choices(
-                    STATUS_AGENDAMENTO[3:], weights=PESOS_STATUS_AGEND[3:]
-                )[0]
-            data_realizada = data_agendada if status == "realizada" else None
-            profissional = rng.choice(profissionais_paciente)
-            agendamentos_para_inserir.append((
-                pid,
-                profissional[0],
-                profissional[1],
-                data_agendada.isoformat(sep=" ", timespec="seconds"),
-                data_realizada.isoformat(sep=" ", timespec="seconds") if data_realizada else None,
-                status,
-                rng.choice(MOTIVOS_CONSULTA),
-                None,
-                rng.choice((15, 30, 45, 60)),
-                0,
-                0,
-            ))
-    conexao.executemany(
-        """
-        INSERT INTO agendamentos
-            (paciente_id, profissional_id, especialidade_id, data_hora_agendada,
-             data_hora_realizada, status, motivo, observacoes, duracao_minutos,
-             lembrete_enviado, recorrente)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        agendamentos_para_inserir,
-    )
-    resumo.agendamentos = len(agendamentos_para_inserir)
+        _executar_muitos(
+            conexao,
+            """
+            INSERT INTO paciente_condicao (paciente_id, condicao_id, data_diagnostico, status)
+            VALUES (%s, %s, %s, %s)
+            """,
+            [
+                (
+                    h["paciente_id"],
+                    h["condicao_id"],
+                    h["primeiro"].date().isoformat(),
+                    rng.choices(STATUS_CONDICAO, weights=PESOS_STATUS)[0],
+                )
+                for h in historicos
+            ],
+        )
+        del historicos
 
-    violacoes = conexao.execute("PRAGMA foreign_key_check").fetchall()
-    if violacoes:
-        resumo.avisos.append(f"{len(violacoes)} violações de chave estrangeira detectadas")
+        exames_para_inserir = []
+        for atendimento in conexao.execute(
+            "SELECT id, data_atendimento FROM atendimentos"
+        ).fetchall():
+            if rng.random() > 0.28:
+                continue
+            dia_base = atendimento["data_atendimento"]
+            for _ in range(rng.choice((1, 1, 2))):
+                dia_exame = min(dia_base + timedelta(days=rng.randint(0, 7)), agora).date()
+                resultado = rng.choices(RESULTADOS_EXAME, weights=(38, 27, 15, 10, 10), k=1)[0]
+                exames_para_inserir.append(
+                    (atendimento["id"], rng.choice(CATALOGO_EXAMES), dia_exame, resultado)
+                )
+        _executar_muitos(
+            conexao,
+            """
+            INSERT INTO exames (atendimento_id, nome_exame, data_exame, resultado)
+            VALUES (%s, %s, %s, %s)
+            """,
+            exames_para_inserir,
+        )
+        resumo.exames = len(exames_para_inserir)
 
-    conexao.commit()
-    conexao.execute("ANALYZE")
-    conexao.commit()
+        print("[etl] fase 3: agendamentos sintéticos...")
+        agendamentos_para_inserir = []
+        for pid in range(1, n_pacientes + 1):
+            n_agendamentos = rng.randint(2, 8)
+            profissionais_paciente = conexao.execute(
+                """
+                SELECT DISTINCT pr.id, pr.especialidade_principal_id
+                FROM atendimentos a
+                JOIN profissionais pr ON pr.id = a.profissional_id
+                WHERE a.paciente_id = %s
+                """,
+                (pid,),
+            ).fetchall()
+            if not profissionais_paciente:
+                continue
+            for _ in range(n_agendamentos):
+                dias_atras = rng.randint(0, 730)
+                data_agendada = agora - timedelta(days=dias_atras)
+                if data_agendada.date() < date.today():
+                    status = rng.choices(
+                        STATUS_AGENDAMENTO[:3], weights=PESOS_STATUS_AGEND[:3]
+                    )[0]
+                else:
+                    status = rng.choices(
+                        STATUS_AGENDAMENTO[3:], weights=PESOS_STATUS_AGEND[3:]
+                    )[0]
+                data_realizada = data_agendada if status == "realizada" else None
+                profissional = rng.choice(profissionais_paciente)
+                agendamentos_para_inserir.append((
+                    pid,
+                    profissional["id"],
+                    profissional["especialidade_principal_id"],
+                    data_agendada,
+                    data_realizada,
+                    status,
+                    rng.choice(MOTIVOS_CONSULTA),
+                    None,
+                    rng.choice((15, 30, 45, 60)),
+                    False,
+                    False,
+                ))
+        _executar_muitos(
+            conexao,
+            """
+            INSERT INTO agendamentos
+                (paciente_id, profissional_id, especialidade_id, data_hora_agendada,
+                 data_hora_realizada, status, motivo, observacoes, duracao_minutos,
+                 lembrete_enviado, recorrente)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            agendamentos_para_inserir,
+        )
+        resumo.agendamentos = len(agendamentos_para_inserir)
+
+        violacoes = violacoes_de_integridade(dsn_resolvido)
+        if violacoes:
+            resumo.avisos.append(f"{len(violacoes)} violações de chave estrangeira detectadas")
+
+        conexao.execute("ANALYZE")
+        conexao.commit()
+    finally:
+        conexao.close()
+
     resumo.duracao_segundos = time.perf_counter() - inicio
-    conexao.close()
     print(resumo)
     return resumo
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Cria a base SQLite de prontuários simulados.")
+    parser = argparse.ArgumentParser(description="Popula o PostgreSQL de prontuários simulados.")
     parser.add_argument("--parquet", type=Path, default=PARQUET_PADRAO)
-    parser.add_argument("--db", type=Path, default=DB_PADRAO)
+    parser.add_argument("--dsn", type=str, default=None, help="Usa o DSN informado (ou MEDPT_PG_DSN).")
     parser.add_argument("--n-pacientes", type=int, default=N_PACIENTES_PADRAO)
     parser.add_argument("--limite", type=int, default=None, help="Máximo de episódios a carregar.")
     parser.add_argument("--seed", type=int, default=SEED_PADRAO)
     argumentos = parser.parse_args()
     rodar_etl(
         caminho_parquet=argumentos.parquet,
-        caminho_db=argumentos.db,
+        dsn=argumentos.dsn,
         n_pacientes=argumentos.n_pacientes,
         limite_linhas=argumentos.limite,
         seed=argumentos.seed,

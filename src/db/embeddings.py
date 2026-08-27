@@ -1,133 +1,105 @@
-import hashlib
-import math
+"""Provedores de embeddings via LangChain + divisão em chunks (Document).
+
+A integração usa as abstrações oficiais de LangChain:
+  * OpenAIEmbeddings (produção) -> text-embedding-3-small
+  * DeterministicFakeEmbedding (testes/mock, determinístico pelo conteúdo do texto)
+  * RecursiveCharacterTextSplitter + Document (chunking de prontuários)
+
+Uso:
+    provedor = obter_provedor("openai")   # ou "mock"
+    chunks = dividir_documento(Document(page_content=...))
+"""
+
 import os
+
+from langchain_core.documents import Document
+from langchain_core.embeddings import DeterministicFakeEmbedding, Embeddings
+from langchain_openai import OpenAIEmbeddings
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 MODELO_OPENAI = "text-embedding-3-small"
 DIMS_OPENAI = 1536
 
-MODELO_E5 = "intfloat/multilingual-e5-small"
-DIMS_E5 = 384
-
-MODELO_MOCK = "mock-hash"
+MODELO_MOCK = "fake-embeddings"
 DIMS_MOCK = 64
 
+TAMANHO_CHUNK = 600
+SOBREPOSICAO_CHUNK = 50
 
-def dividir_em_chunks(texto: str, max_chars: int = 600) -> list[str]:
-    texto = " ".join(texto.split())
-    if len(texto) <= max_chars:
-        return [texto]
-    chunks: list[str] = []
-    atual: list[str] = []
-    tamanho = 0
-    for palavra in texto.split(" "):
-        extra = len(palavra) + (1 if atual else 0)
-        if atual and tamanho + extra > max_chars:
-            chunks.append(" ".join(atual))
-            atual = [palavra]
-            tamanho = len(palavra)
-        else:
-            atual.append(palavra)
-            tamanho += extra
-    if atual:
-        chunks.append(" ".join(atual))
-    return chunks
+SEPARADORES = ["\n\n", "\n", ". ", " ", ""]
 
 
-def _normalizar(vetor: list[float]) -> list[float]:
-    norma = math.sqrt(sum(x * x for x in vetor)) or 1.0
-    return [x / norma for x in vetor]
+def dividir_em_chunks(texto: str, max_chars: int = TAMANHO_CHUNK) -> list[str]:
+    """Divide um texto (queixa + conduta) em pedaços de tamanho máximo."""
+
+    return [
+        " ".join(chunk.split())
+        for chunk in RecursiveCharacterTextSplitter(
+            chunk_size=max_chars,
+            chunk_overlap=min(SOBREPOSICAO_CHUNK, max_chars // 4),
+            separators=SEPARADORES,
+        ).split_text(texto)
+    ]
 
 
-class ProvedorEmbeddings:
-    nome_modelo: str = ""
-    dimensoes: int = 0
+def dividir_documento(documento: Document, max_chars: int = TAMANHO_CHUNK) -> list[Document]:
+    """Divide um Document em chunk Documents usando o splitter oficial do LangChain.
 
-    def embed_passagens(self, textos: list[str]) -> list[list[float]]:
-        raise NotImplementedError
+    Cada pedaço herda os metadados do documento original e ganha
+    ``ordem_chunk`` (0-based) para manter a ordem dentro do atendimento.
+    """
 
-    def embed_consulta(self, texto: str) -> list[float]:
-        return self.embed_passagens([texto])[0]
-
-    def verificar(self) -> None:
-        self.embed_consulta("verificação de conectividade")
-
-
-class EmbeddingsMock(ProvedorEmbeddings):
-    def __init__(self, dimensoes: int = DIMS_MOCK):
-        self.nome_modelo = MODELO_MOCK
-        self.dimensoes = dimensoes
-
-    def embed_passagens(self, textos: list[str]) -> list[list[float]]:
-        vetores = []
-        for texto in textos:
-            digest = hashlib.md5(texto.encode("utf-8")).digest()
-            semente = int.from_bytes(digest[:8], "little")
-            estado = semente
-            vetor = []
-            for _ in range(self.dimensoes):
-                estado = (estado * 6364136223846793005 + 1442695040888963407) % (1 << 64)
-                vetor.append((estado >> 11) / float(1 << 53) - 0.5)
-            vetores.append(_normalizar(vetor))
-        return vetores
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=max_chars,
+        chunk_overlap=min(SOBREPOSICAO_CHUNK, max_chars // 4),
+        separators=SEPARADORES,
+    )
+    pedacos = []
+    for indice, pedaco in enumerate(splitter.split_documents([documento])):
+        pedaco.page_content = " ".join(pedaco.page_content.split())
+        pedaco.metadata["ordem_chunk"] = indice
+        pedacos.append(pedaco)
+    return pedacos
 
 
-class EmbeddingsOpenAI(ProvedorEmbeddings):
-    def __init__(self, modelo: str = MODELO_OPENAI):
-        try:
-            from openai import OpenAI
-        except ImportError as erro:
-            raise RuntimeError("Pacote 'openai' não instalado.") from erro
-        chave = os.getenv("OPENAI_API_KEY")
-        if not chave:
-            raise RuntimeError(
-                "OPENAI_API_KEY ausente. Atenção: a chave da Groq não funciona na API "
-                "da OpenAI; cadastre uma chave válida em https://platform.openai.com."
-            )
-        self._cliente = OpenAI(api_key=chave)
-        self.nome_modelo = modelo
-        self.dimensoes = DIMS_OPENAI
-
-    def embed_passagens(self, textos: list[str]) -> list[list[float]]:
-        resposta = self._cliente.embeddings.create(model=self.nome_modelo, input=textos)
-        ordenados = sorted(resposta.data, key=lambda item: item.index)
-        return [item.embedding for item in ordenados]
+def _mock_embeddings() -> DeterministicFakeEmbedding:
+    return DeterministicFakeEmbedding(size=DIMS_MOCK)
 
 
-class EmbeddingsE5Local(ProvedorEmbeddings):
-    PREFIXO_PASSAGEM = "passage: "
-    PREFIXO_CONSULTA = "query: "
-
-    def __init__(self, modelo: str = MODELO_E5):
-        try:
-            from sentence_transformers import SentenceTransformer
-        except ImportError as erro:
-            raise RuntimeError(
-                "sentence-transformers não instalado. Instale com: "
-                "pip install torch --index-url https://download.pytorch.org/whl/cpu "
-                "&& pip install -r requirements-local.txt"
-            ) from erro
-        self._modelo = SentenceTransformer(modelo)
-        self.nome_modelo = modelo
-        self.dimensoes = self._modelo.get_sentence_embedding_dimension()
-
-    def embed_passagens(self, textos: list[str]) -> list[list[float]]:
-        entradas = [self.PREFIXO_PASSAGEM + t for t in textos]
-        matriz = self._modelo.encode(entradas, normalize_embeddings=True, show_progress_bar=False)
-        return matriz.tolist()
-
-    def embed_consulta(self, texto: str) -> list[float]:
-        vetor = self._modelo.encode(
-            self.PREFIXO_CONSULTA + texto, normalize_embeddings=True, show_progress_bar=False
+def _openai_embeddings() -> OpenAIEmbeddings:
+    chave = os.getenv("OPENAI_API_KEY")
+    if not chave:
+        raise RuntimeError(
+            "OPENAI_API_KEY ausente. Atenção: a chave da Groq não funciona na API "
+            "da OpenAI; cadastre uma chave válida em https://platform.openai.com."
         )
-        return vetor.tolist()
+    return OpenAIEmbeddings(model=MODELO_OPENAI, api_key=chave)
 
 
-def obter_provedor(nome: str) -> ProvedorEmbeddings:
+def obter_provedor(nome: str) -> Embeddings:
     escolha = nome.strip().lower()
     if escolha == "mock":
-        return EmbeddingsMock()
+        return _mock_embeddings()
     if escolha == "openai":
-        return EmbeddingsOpenAI()
-    if escolha in ("local", "e5"):
-        return EmbeddingsE5Local()
-    raise ValueError(f"Provedor desconhecido: '{nome}'. Use: mock, openai ou local.")
+        return _openai_embeddings()
+    raise ValueError(f"Provedor desconhecido: '{nome}'. Use: mock ou openai.")
+
+
+def nome_modelo_do(provedor: Embeddings) -> str:
+    """Rótulo estável para distinguir vetores entre modelos."""
+
+    if isinstance(provedor, OpenAIEmbeddings):
+        return provedor.model
+    if isinstance(provedor, DeterministicFakeEmbedding):
+        return MODELO_MOCK
+    return type(provedor).__name__
+
+
+def dimensoes_do(provedor: Embeddings) -> int:
+    """Dimensão do vetor produzido pelo provedor."""
+
+    if isinstance(provedor, OpenAIEmbeddings):
+        return DIMS_OPENAI
+    if isinstance(provedor, DeterministicFakeEmbedding):
+        return provedor.size
+    return len(provedor.embed_query("verificação"))

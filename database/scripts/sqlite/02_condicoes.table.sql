@@ -1,4 +1,0 @@
-CREATE TABLE condicoes (
-    id   INTEGER PRIMARY KEY,
-    nome TEXT NOT NULL UNIQUE
-);
