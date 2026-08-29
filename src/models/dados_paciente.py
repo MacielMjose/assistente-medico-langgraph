@@ -1,6 +1,6 @@
+
 from sqlite3 import Date
 from typing import TypedDict
-
 
 class DadosPaciente(TypedDict):
     nome: str
@@ -9,5 +9,5 @@ class DadosPaciente(TypedDict):
     exames: list[dict] | None
     data_ultima_consulta: Date | None
     prontuarios: list[dict] | None
-    tratamento_necessario: bool
+    tratamento_necessario: bool  = False
     mensagem_final: str
