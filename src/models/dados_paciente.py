@@ -19,3 +19,4 @@ class DadosPaciente(TypedDict, total=False):
     agendamento: Optional[dict]
     alertas: list[str]
     log_id: Optional[Any]
+    documentos_similares: Optional[list[dict]]

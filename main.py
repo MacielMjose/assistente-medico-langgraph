@@ -1,5 +1,6 @@
 import os
 import json
+import asyncio
 from datetime import datetime, timedelta as td
 from langchain_core.prompts import PromptTemplate
 from langchain_openai import ChatOpenAI
@@ -10,19 +11,49 @@ from src.db.repos.paciente_repo import PacienteRepositorio
 from src.db.repos.atendimento_repo import AtendimentoRepositorio
 from src.db.repos.agendamento_repo import AgendamentoRepositorio
 from src.db.repos.log_repo import LogRepositorio
+from src.db.buscar.buscar_repo import BuscaRepositorio
+from src.db.embeddings import obter_provedor
 from src.db.models import EntradaLog
 
 llm = get_llm()
-
-prompt = PromptTemplate.from_template(
-    "Com base no nome {nome}, escolha o clima da personalidade da pessoa hoje. "
-    "Responda apenas com uma das três palavras: Ensolarado, Nublado ou Chuvoso."
-)
 
 paciente_repo = PacienteRepositorio()
 atendimento_repo = AtendimentoRepositorio()
 agendamento_repo = AgendamentoRepositorio()
 log_repo = LogRepositorio()
+busca_repo = BuscaRepositorio()
+
+# Prompts templates
+prompt_analise_inicial = PromptTemplate(
+        input_variables=["nome", "data_ultima_consulta", "prontuarios", "exames", "contexto_documentos"],
+        template="""Paciente: {nome}
+                    Última consulta: {data_ultima_consulta}
+
+                    Prontuários recentes:
+                    {prontuarios}
+
+                    Exames recentes:
+                    {exames}{contexto_documentos}
+
+                    Com base no histórico do paciente e documentos similares, qual é sua análise inicial sobre a saúde e bem-estar?"""
+)
+
+prompt_explicacao = PromptTemplate(
+    input_variables=["analise", "nome"],
+    template="""Baseado na seguinte análise: {analise}
+
+                Gere uma explicação clara e acessível para o paciente {nome} sobre seu estado de saúde.
+                A explicação deve ser breve e informativa."""
+)
+
+prompt_tratamento = PromptTemplate(
+    input_variables=["analise"],
+    template="""Baseado na análise: {analise}
+
+                Sugira tratamentos e cuidados recomendados para o paciente.
+                Responda em formato de lista com recomendações práticas.
+                Considere o histórico clínico disponível."""
+)
 
 
 def obter_entrada(state: DadosPaciente) -> DadosPaciente:
@@ -70,44 +101,94 @@ def buscar_paciente(state: DadosPaciente) -> DadosPaciente:
     return state
 
 
-def obter_prontuarios(state: DadosPaciente) -> DadosPaciente:
+async def _executar_obter_prontuarios(paciente_id):
+    try:
+        atendimentos = await asyncio.to_thread(
+            atendimento_repo.obter_prontuarios, paciente_id, 10
+        )
+        condicoes = await asyncio.to_thread(
+            atendimento_repo.obter_condicoes, paciente_id
+        )
+        exames = await asyncio.to_thread(
+            atendimento_repo.obter_exames, paciente_id, 10
+        )
+        return {
+            "prontuarios": [
+                {
+                    "id": a.id,
+                    "data": a.data_atendimento.isoformat(),
+                    "queixa": a.queixa,
+                    "conduta": a.conduta,
+                    "condicoes": [c.condicao for c in condicoes],
+                }
+                for a in atendimentos
+            ],
+            "exames": [
+                {
+                    "id": e.exame_id,
+                    "nome": e.nome_exame,
+                    "data": e.data_exame.isoformat(),
+                    "resultado": e.resultado,
+                }
+                for e in exames
+            ],
+            "data_ultima_consulta": atendimentos[0].data_atendimento.date() if atendimentos else None,
+        }
+    except Exception:
+        return {"prontuarios": [], "exames": [], "data_ultima_consulta": None}
+
+
+async def _executar_recuperar_documentos(prontuarios):
+    if not prontuarios:
+        return {"documentos_similares": []}
+
+    try:
+        consulta = " ".join(
+            [f"{p.get('queixa', '')} {p.get('conduta', '')}" for p in prontuarios[:3]]
+        ).strip()
+
+        if not consulta:
+            return {"documentos_similares": []}
+
+        provedor = obter_provedor(os.getenv("MEDPT_EMBEDDING_PROVIDER", "mock"))
+        resultados = await asyncio.to_thread(
+            busca_repo.buscar_vetorial, consulta, provedor, 5
+        )
+
+        return {
+            "documentos_similares": [
+                {
+                    "atendimento_id": r.atendimento_id,
+                    "similaridade": r.similaridade,
+                    "conteudo": r.conteudo,
+                    "condicao": r.condicao,
+                    "especialidade": r.especialidade_principal,
+                    "data_atendimento": r.data_atendimento,
+                }
+                for r in resultados
+            ]
+        }
+    except Exception:
+        return {"documentos_similares": []}
+
+
+async def obter_dados_paciente_paralelo(state: DadosPaciente) -> DadosPaciente:
+    """Executa obter_prontuarios e recuperar_documentos com dependência"""
     paciente = state.get("paciente")
+
     if not paciente:
         state["prontuarios"] = []
         state["exames"] = []
+        state["documentos_similares"] = []
         return state
 
-    try:
-        atendimentos = atendimento_repo.obter_prontuarios(paciente.id, limite=10)
-        condicoes = atendimento_repo.obter_condicoes(paciente.id)
-        exames = atendimento_repo.obter_exames(paciente.id, limite=10)
+    # Primeiro: obter prontuários (necessário para busca vetorial)
+    resultado_prontuarios = await _executar_obter_prontuarios(paciente.id)
+    state.update(resultado_prontuarios)
 
-        state["prontuarios"] = [
-            {
-                "id": a.id,
-                "data": a.data_atendimento.isoformat(),
-                "queixa": a.queixa,
-                "conduta": a.conduta,
-                "condicoes": [c.condicao for c in condicoes],
-            }
-            for a in atendimentos
-        ]
-
-        if atendimentos:
-            state["data_ultima_consulta"] = atendimentos[0].data_atendimento.date()
-
-        state["exames"] = [
-            {
-                "id": e.exame_id,
-                "nome": e.nome_exame,
-                "data": e.data_exame.isoformat(),
-                "resultado": e.resultado,
-            }
-            for e in exames
-        ]
-    except Exception:
-        state["prontuarios"] = []
-        state["exames"] = []
+    # Segundo: recuperar documentos similares (depende dos prontuários)
+    resultado_docs = await _executar_recuperar_documentos(resultado_prontuarios["prontuarios"])
+    state.update(resultado_docs)
 
     return state
 
@@ -116,19 +197,26 @@ def consultar_modelo_llm(state: DadosPaciente) -> DadosPaciente:
     nome = state.get("nome", "")
     prontuarios = state.get("prontuarios", [])
     exames = state.get("exames", [])
+    documentos_similares = state.get("documentos_similares", [])
 
-    contexto = f"""
-        Paciente: {nome}
-        Última consulta: {state.get("data_ultima_consulta", "N/A")}
+    contexto_documentos = ""
+    if documentos_similares:
+        contexto_documentos = "\n\nDocumentos similares recuperados (RAG):\n"
+        for doc in documentos_similares:
+            contexto_documentos += f"""
+                - Condição: {doc.get('condicao', 'N/A')}
+                Similaridade: {doc.get('similaridade', 0):.2%}
+                Data: {doc.get('data_atendimento', 'N/A')}
+                Conteúdo: {doc.get('conteudo', 'N/A')[:200]}...
+            """
 
-        Prontuários recentes:
-        {json.dumps(prontuarios, ensure_ascii=False, indent=2)}
-
-        Exames recentes:
-        {json.dumps(exames, ensure_ascii=False, indent=2)}
-
-        Com base no histórico do paciente, qual é sua análise inicial sobre a saúde e bem-estar?
-    """
+    contexto = prompt_analise_inicial.format(
+        nome=nome,
+        data_ultima_consulta=state.get("data_ultima_consulta", "N/A"),
+        prontuarios=json.dumps(prontuarios, ensure_ascii=False, indent=2),
+        exames=json.dumps(exames, ensure_ascii=False, indent=2),
+        contexto_documentos=contexto_documentos
+    )
 
     try:
         response = llm.invoke(contexto)
@@ -144,13 +232,8 @@ def gerar_explicacao(state: DadosPaciente) -> DadosPaciente:
     nome = state.get("nome", "")
 
     try:
-        prompt_explicacao = f"""
-            Baseado na seguinte análise: {analise}
-
-            Gere uma explicação clara e acessível para o paciente {nome} sobre seu estado de saúde.
-            A explicação deve ser breve e informativa.
-        """
-        response = llm.invoke(prompt_explicacao)
+        prompt_msg = prompt_explicacao.format(analise=analise, nome=nome)
+        response = llm.invoke(prompt_msg)
         state["explicacao"] = response.content
     except Exception:
         state["explicacao"] = "Não foi possível gerar uma explicação neste momento."
@@ -171,14 +254,8 @@ def sugerir_tratamentos(state: DadosPaciente) -> DadosPaciente:
     analise = state.get("analise_llm", "")
 
     try:
-        prompt_tratamento = f"""
-            Baseado na análise: {analise}
-
-            Sugira tratamentos e cuidados recomendados para o paciente.
-            Responda em formato de lista com recomendações práticas.
-            Considere o histórico clínico disponível.
-        """
-        response = llm.invoke(prompt_tratamento)
+        prompt_msg = prompt_tratamento.format(analise=analise)
+        response = llm.invoke(prompt_msg)
         tratamentos = response.content
 
         state["tratamento_necessario"] = bool(tratamentos and len(tratamentos) > 10)
@@ -195,9 +272,6 @@ def marcar_consulta(state: DadosPaciente) -> DadosPaciente:
 
     if not paciente:
         state["agendamento"] = None
-        state["mensagem_final"] = (
-            "Não foi possível agendar consulta: paciente não encontrado."
-        )
         return state
 
     try:
@@ -209,7 +283,7 @@ def marcar_consulta(state: DadosPaciente) -> DadosPaciente:
             "especialidade_id": 1,
             "data_hora_agendada": data_agendamento,
             "status": "agendado",
-            "motivo": "Acompanhamento de saúde",
+            "motivo": "Acompanhamento de saude",
             "observacoes": state.get("explicacao", ""),
             "duracao_minutos": 30,
             "lembrete_enviado": False,
@@ -251,13 +325,14 @@ def registrar_log_auditoria(state: DadosPaciente) -> DadosPaciente:
     ja_existe = state.get("ja_existe", False)
     tratamento_necessario = state.get("tratamento_necessario", False)
 
+    agendamento = state.get("agendamento") or {}
     detalhe = {
         "paciente_nome": nome,
         "paciente_existe": ja_existe,
         "tratamento_necessario": tratamento_necessario,
         "timestamp": datetime.now().isoformat(),
         "alertas": state.get("alertas", []),
-        "agendamento_id": state.get("agendamento", {}).get("id"),
+        "agendamento_id": agendamento.get("id"),
     }
 
     try:
@@ -271,7 +346,7 @@ def registrar_log_auditoria(state: DadosPaciente) -> DadosPaciente:
     except Exception:
         state["log_id"] = None
 
-    mensagem = f"Análise concluída para {nome}. "
+    mensagem = f"Analise concluida para {nome}. "
     if state.get("agendamento"):
         mensagem += f"Consulta agendada para {state['agendamento']['data']}. "
     if state.get("alertas"):
@@ -299,7 +374,7 @@ workflow = StateGraph(DadosPaciente)
 workflow.add_node("obter_entrada", obter_entrada)
 workflow.add_node("validar_dados_paciente", validar_dados_paciente)
 workflow.add_node("buscar_paciente", buscar_paciente)
-workflow.add_node("obter_prontuarios", obter_prontuarios)
+workflow.add_node("obter_dados_paciente_paralelo", obter_dados_paciente_paralelo)
 workflow.add_node("consultar_modelo_llm", consultar_modelo_llm)
 workflow.add_node("gerar_explicacao", gerar_explicacao)
 workflow.add_node("validar_com_profissional", validar_com_profissional)
@@ -314,9 +389,9 @@ workflow.add_edge("validar_dados_paciente", "buscar_paciente")
 workflow.add_conditional_edges(
     "buscar_paciente",
     verificar_paciente_existe,
-    {"paciente_existe": "obter_prontuarios", "paciente_nao_existe": "marcar_consulta"},
+    {"paciente_existe": "obter_dados_paciente_paralelo", "paciente_nao_existe": "marcar_consulta"},
 )
-workflow.add_edge("obter_prontuarios", "consultar_modelo_llm")
+workflow.add_edge("obter_dados_paciente_paralelo", "consultar_modelo_llm")
 workflow.add_edge("consultar_modelo_llm", "gerar_explicacao")
 workflow.add_edge("gerar_explicacao", "validar_com_profissional")
 workflow.add_edge("validar_com_profissional", "sugerir_tratamentos")
@@ -328,6 +403,7 @@ workflow.add_conditional_edges(
         "tratamento_nao_necessario": "emitir_alertas",
     },
 )
+workflow.add_edge("marcar_consulta", "registrar_log_auditoria")
 workflow.add_edge("emitir_alertas", "registrar_log_auditoria")
 
 workflow.set_entry_point("obter_entrada")
@@ -343,22 +419,29 @@ entrada = {
     "cpf": "***.917.803-**",
 }
 
-print("\n" + "="*60)
-print("Iniciando teste do fluxo LangGraph")
-print("="*60)
-print(f"Entrada: {entrada}\n")
+async def executar_fluxo():
+    import sys
+    print("\n" + "="*60, file=sys.stderr)
+    print("Iniciando teste do fluxo LangGraph (ASYNC PARALELO)", file=sys.stderr)
+    print("="*60, file=sys.stderr)
+    print(f"Entrada: {entrada}\n", file=sys.stderr)
 
-resultado = app.invoke(entrada)
+    resultado = await app.ainvoke(entrada)
 
-print("\n" + "="*60)
-print("RESULTADO DO FLUXO")
-print("="*60)
-print(f"Mensagem Final: {resultado.get('mensagem_final', '<sem retorno>')}")
-print(f"Paciente Existe: {resultado.get('ja_existe')}")
-print(f"Análise LLM: {resultado.get('analise_llm', 'N/A')}")
-print(f"Explicação: {resultado.get('explicacao', 'N/A')}")
-print(f"Tratamento Necessário: {resultado.get('tratamento_necessario')}")
-print(f"Alertas: {resultado.get('alertas', [])}")
-print(f"Agendamento: {resultado.get('agendamento', 'N/A')}")
-print(f"Log ID: {resultado.get('log_id', 'N/A')}")
-print("="*60)
+    print("\n" + "="*60, file=sys.stderr)
+    print("RESULTADO DO FLUXO", file=sys.stderr)
+    print("="*60, file=sys.stderr)
+    print(f"Mensagem Final: {resultado.get('mensagem_final', '<sem retorno>')}", file=sys.stderr)
+    print(f"Paciente Existe: {resultado.get('ja_existe')}", file=sys.stderr)
+    print(f"Analise LLM: {resultado.get('analise_llm', 'N/A')}", file=sys.stderr)
+    print(f"Explicacao: {resultado.get('explicacao', 'N/A')}", file=sys.stderr)
+    print(f"Tratamentos: {resultado.get('tratamentos', 'N/A')}", file=sys.stderr)
+    print(f"Tratamento Necessario: {resultado.get('tratamento_necessario')}", file=sys.stderr)
+    print(f"Alertas: {resultado.get('alertas', [])}", file=sys.stderr)
+    print(f"Agendamento: {resultado.get('agendamento', 'N/A')}", file=sys.stderr)
+    print(f"Log ID: {resultado.get('log_id', 'N/A')}", file=sys.stderr)
+    print("="*60, file=sys.stderr)
+
+
+if __name__ == "__main__":
+    asyncio.run(executar_fluxo())
