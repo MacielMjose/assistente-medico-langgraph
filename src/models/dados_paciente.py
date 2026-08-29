@@ -1,13 +1,21 @@
 
 from sqlite3 import Date
-from typing import TypedDict
+from typing import TypedDict, Any, Optional
 
-class DadosPaciente(TypedDict):
+class DadosPaciente(TypedDict, total=False):
     nome: str
-    cpf: str | None
+    cpf: Optional[str]
     ja_existe: bool
-    exames: list[dict] | None
-    data_ultima_consulta: Date | None
-    prontuarios: list[dict] | None
-    tratamento_necessario: bool  = False
+    paciente: Optional[Any]
+    exames: Optional[list[dict]]
+    data_ultima_consulta: Optional[Date]
+    prontuarios: Optional[list[dict]]
+    tratamento_necessario: bool
     mensagem_final: str
+    analise_llm: str
+    explicacao: str
+    validacao_profissional: dict
+    tratamentos: str
+    agendamento: Optional[dict]
+    alertas: list[str]
+    log_id: Optional[Any]

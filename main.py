@@ -25,8 +25,9 @@ agendamento_repo = AgendamentoRepositorio()
 log_repo = LogRepositorio()
 
 
-def obter_entrada(state: dict) -> dict:
+def obter_entrada(state: DadosPaciente) -> DadosPaciente:
     state["ja_existe"] = False
+    state["paciente"] = None
     state["exames"] = None
     state["data_ultima_consulta"] = None
     state["prontuarios"] = None
@@ -35,7 +36,7 @@ def obter_entrada(state: dict) -> dict:
     return state
 
 
-def validar_dados_paciente(state: dict) -> dict:
+def validar_dados_paciente(state: DadosPaciente) -> DadosPaciente:
     nome = state.get("nome", "").strip()
     cpf = state.get("cpf", "").strip() if state.get("cpf") else None
 
@@ -50,7 +51,7 @@ def validar_dados_paciente(state: dict) -> dict:
     return state
 
 
-def buscar_paciente(state: dict) -> dict:
+def buscar_paciente(state: DadosPaciente) -> DadosPaciente:
     nome = state.get("nome", "")
 
     try:
@@ -69,7 +70,7 @@ def buscar_paciente(state: dict) -> dict:
     return state
 
 
-def obter_prontuarios(state: dict) -> dict:
+def obter_prontuarios(state: DadosPaciente) -> DadosPaciente:
     paciente = state.get("paciente")
     if not paciente:
         state["prontuarios"] = []
@@ -111,22 +112,22 @@ def obter_prontuarios(state: dict) -> dict:
     return state
 
 
-def consultar_modelo_llm(state: dict) -> dict:
+def consultar_modelo_llm(state: DadosPaciente) -> DadosPaciente:
     nome = state.get("nome", "")
     prontuarios = state.get("prontuarios", [])
     exames = state.get("exames", [])
 
     contexto = f"""
-Paciente: {nome}
-Última consulta: {state.get("data_ultima_consulta", "N/A")}
+        Paciente: {nome}
+        Última consulta: {state.get("data_ultima_consulta", "N/A")}
 
-Prontuários recentes:
-{json.dumps(prontuarios, ensure_ascii=False, indent=2)}
+        Prontuários recentes:
+        {json.dumps(prontuarios, ensure_ascii=False, indent=2)}
 
-Exames recentes:
-{json.dumps(exames, ensure_ascii=False, indent=2)}
+        Exames recentes:
+        {json.dumps(exames, ensure_ascii=False, indent=2)}
 
-Com base no histórico do paciente, qual é sua análise inicial sobre a saúde e bem-estar?
+        Com base no histórico do paciente, qual é sua análise inicial sobre a saúde e bem-estar?
     """
 
     try:
@@ -138,16 +139,16 @@ Com base no histórico do paciente, qual é sua análise inicial sobre a saúde 
     return state
 
 
-def gerar_explicacao(state: dict) -> dict:
+def gerar_explicacao(state: DadosPaciente) -> DadosPaciente:
     analise = state.get("analise_llm", "")
     nome = state.get("nome", "")
 
     try:
         prompt_explicacao = f"""
-Baseado na seguinte análise: {analise}
+            Baseado na seguinte análise: {analise}
 
-Gere uma explicação clara e acessível para o paciente {nome} sobre seu estado de saúde.
-A explicação deve ser breve e informativa.
+            Gere uma explicação clara e acessível para o paciente {nome} sobre seu estado de saúde.
+            A explicação deve ser breve e informativa.
         """
         response = llm.invoke(prompt_explicacao)
         state["explicacao"] = response.content
@@ -157,7 +158,7 @@ A explicação deve ser breve e informativa.
     return state
 
 
-def validar_com_profissional(state: dict) -> dict:
+def validar_com_profissional(state: DadosPaciente) -> DadosPaciente:
     state["validacao_profissional"] = {
         "validado": True,
         "comentarios": "Análise revisada e aprovada.",
@@ -166,16 +167,16 @@ def validar_com_profissional(state: dict) -> dict:
     return state
 
 
-def sugerir_tratamentos(state: dict) -> dict:
+def sugerir_tratamentos(state: DadosPaciente) -> DadosPaciente:
     analise = state.get("analise_llm", "")
 
     try:
         prompt_tratamento = f"""
-Baseado na análise: {analise}
+            Baseado na análise: {analise}
 
-Sugira tratamentos e cuidados recomendados para o paciente.
-Responda em formato de lista com recomendações práticas.
-Considere o histórico clínico disponível.
+            Sugira tratamentos e cuidados recomendados para o paciente.
+            Responda em formato de lista com recomendações práticas.
+            Considere o histórico clínico disponível.
         """
         response = llm.invoke(prompt_tratamento)
         tratamentos = response.content
@@ -189,7 +190,7 @@ Considere o histórico clínico disponível.
     return state
 
 
-def marcar_consulta(state: dict) -> dict:
+def marcar_consulta(state: DadosPaciente) -> DadosPaciente:
     paciente = state.get("paciente")
 
     if not paciente:
@@ -223,7 +224,7 @@ def marcar_consulta(state: dict) -> dict:
     return state
 
 
-def emitir_alertas(state: dict) -> dict:
+def emitir_alertas(state: DadosPaciente) -> DadosPaciente:
     alertas = []
     data_ultima_consulta = state.get("data_ultima_consulta")
     exames = state.get("exames", [])
@@ -245,7 +246,7 @@ def emitir_alertas(state: dict) -> dict:
     return state
 
 
-def registrar_log_auditoria(state: dict) -> dict:
+def registrar_log_auditoria(state: DadosPaciente) -> DadosPaciente:
     nome = state.get("nome", "Unknown")
     ja_existe = state.get("ja_existe", False)
     tratamento_necessario = state.get("tratamento_necessario", False)
@@ -280,11 +281,11 @@ def registrar_log_auditoria(state: dict) -> dict:
     return state
 
 
-def verificar_paciente_existe(state: dict) -> str:
+def verificar_paciente_existe(state: DadosPaciente) -> str:
     return "paciente_existe" if state.get("ja_existe") else "paciente_nao_existe"
 
 
-def verificar_tratamento_necessario(state: dict) -> str:
+def verificar_tratamento_necessario(state: DadosPaciente) -> str:
     return (
         "tratamento_necessario"
         if state.get("tratamento_necessario")
@@ -336,7 +337,28 @@ app = workflow.compile()
 print("Estrutura do grafo:")
 print(app.get_graph().draw_ascii())
 
-entrada = {"nome": "José"}
+# Dados de entrada para teste do fluxo
+entrada = {
+    "nome": "Lara Abreu",
+    "cpf": "***.917.803-**",
+}
+
+print("\n" + "="*60)
+print("Iniciando teste do fluxo LangGraph")
+print("="*60)
+print(f"Entrada: {entrada}\n")
+
 resultado = app.invoke(entrada)
 
-print("Mensagem:", resultado.get("mensagem_final", "<sem retorno>"))
+print("\n" + "="*60)
+print("RESULTADO DO FLUXO")
+print("="*60)
+print(f"Mensagem Final: {resultado.get('mensagem_final', '<sem retorno>')}")
+print(f"Paciente Existe: {resultado.get('ja_existe')}")
+print(f"Análise LLM: {resultado.get('analise_llm', 'N/A')}")
+print(f"Explicação: {resultado.get('explicacao', 'N/A')}")
+print(f"Tratamento Necessário: {resultado.get('tratamento_necessario')}")
+print(f"Alertas: {resultado.get('alertas', [])}")
+print(f"Agendamento: {resultado.get('agendamento', 'N/A')}")
+print(f"Log ID: {resultado.get('log_id', 'N/A')}")
+print("="*60)
