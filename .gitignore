@@ -1,4 +1,9 @@
 .env
-src/models/__pycache__/*
-src/services/__pycache__/*
+__pycache__/
+.pytest_cache/
+src/**/__pycache__/
 .venv
+database/*.db
+database/*.db-journal
+database/*.db-wal
+database/*.db-shm
