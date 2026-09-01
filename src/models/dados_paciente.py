@@ -22,3 +22,4 @@ class DadosPaciente(TypedDict, total=False):
     alertas: list[str]
     log_id: Optional[Any]
     documentos_similares: Optional[list[dict]]
+    erro_busca: Optional[str]

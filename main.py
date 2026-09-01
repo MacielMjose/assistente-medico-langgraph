@@ -86,6 +86,16 @@ prompt_validar_medicamentos = PromptTemplate(
 
 
 def obter_entrada(state: DadosPaciente) -> DadosPaciente:
+    if not state.get("nome") or not state.get("cpf"):
+        print("\n" + "="*60)
+        print("CONSULTA MÉDICA - ASSISTENTE MÉDICO")
+        print("="*60)
+        nome = input("Nome do paciente: ").strip()
+        cpf = input("CPF do paciente: ").strip()
+
+        state["nome"] = nome
+        state["cpf"] = cpf
+
     state["ja_existe"] = False
     state["paciente"] = None
     state["exames"] = None
@@ -112,20 +122,49 @@ def validar_dados_paciente(state: DadosPaciente) -> DadosPaciente:
 
 
 def buscar_paciente(state: DadosPaciente) -> DadosPaciente:
-    nome = state.get("nome", "")
+    nome = state.get("nome", "").strip()
+    cpf = state.get("cpf", "").strip()
+
+    if not nome or not cpf:
+        state["paciente"] = None
+        state["ja_existe"] = False
+        state["erro_busca"] = "Nome e CPF são obrigatórios"
+        return state
 
     try:
         pacientes = paciente_repo.buscar_paciente(nome, limite=1)
-        if pacientes:
-            paciente = pacientes[0]
-            state["paciente"] = paciente
-            state["ja_existe"] = True
-        else:
+
+        if not pacientes:
             state["paciente"] = None
             state["ja_existe"] = False
-    except Exception:
+            state["erro_busca"] = None
+            return state
+
+        paciente = pacientes[0]
+        cpf_paciente = (paciente.cpf_mascarado or "").strip()
+        cpf_entrada = cpf.strip()
+
+        # Validação dupla: verificar se o CPF informado bate com o CPF no banco
+        if not cpf_paciente:
+            state["paciente"] = None
+            state["ja_existe"] = False
+            state["erro_busca"] = f"Erro: paciente '{nome}' no sistema não possui CPF registrado."
+            return state
+
+        if cpf_entrada != cpf_paciente:
+            state["paciente"] = None
+            state["ja_existe"] = False
+            state["erro_busca"] = f"Dados inconsistentes: o CPF informado não corresponde ao registro de '{nome}'. Verifique os dados fornecidos."
+            return state
+
+        state["paciente"] = paciente
+        state["ja_existe"] = True
+        state["erro_busca"] = None
+
+    except Exception as e:
         state["paciente"] = None
         state["ja_existe"] = False
+        state["erro_busca"] = f"Erro ao buscar paciente: {str(e)}"
 
     return state
 
@@ -455,17 +494,28 @@ def registrar_log_auditoria(state: DadosPaciente) -> DadosPaciente:
     except Exception:
         state["log_id"] = None
 
-    mensagem = f"Analise concluida para {nome}. "
-    if state.get("agendamento"):
-        mensagem += f"Consulta agendada para {state['agendamento']['data']}. "
-    if state.get("alertas"):
-        mensagem += f"Alertas: {', '.join(state['alertas'])}"
+    # Preservar mensagem de erro se houver
+    if not state.get("mensagem_final") or not state.get("mensagem_final").startswith("❌"):
+        mensagem = f"Analise concluida para {nome}. "
+        if state.get("agendamento"):
+            mensagem += f"Consulta agendada para {state['agendamento']['data']}. "
+        if state.get("alertas"):
+            mensagem += f"Alertas: {', '.join(state['alertas'])}"
+        state["mensagem_final"] = mensagem
 
-    state["mensagem_final"] = mensagem
+    return state
+
+
+def tratar_erro_busca(state: DadosPaciente) -> DadosPaciente:
+    erro = state.get("erro_busca")
+    if erro:
+        state["mensagem_final"] = f"❌ ERRO: {erro}"
     return state
 
 
 def verificar_paciente_existe(state: DadosPaciente) -> str:
+    if state.get("erro_busca"):
+        return "erro_validacao"
     return "paciente_existe" if state.get("ja_existe") else "paciente_nao_existe"
 
 
@@ -483,6 +533,7 @@ workflow = StateGraph(DadosPaciente)
 workflow.add_node("obter_entrada", obter_entrada)
 workflow.add_node("validar_dados_paciente", validar_dados_paciente)
 workflow.add_node("buscar_paciente", buscar_paciente)
+workflow.add_node("tratar_erro_busca", tratar_erro_busca)
 workflow.add_node("obter_dados_paciente_paralelo", obter_dados_paciente_paralelo)
 workflow.add_node("consultar_modelo_llm", consultar_modelo_llm)
 workflow.add_node("gerar_explicacao", gerar_explicacao)
@@ -498,7 +549,11 @@ workflow.add_edge("validar_dados_paciente", "buscar_paciente")
 workflow.add_conditional_edges(
     "buscar_paciente",
     verificar_paciente_existe,
-    {"paciente_existe": "obter_dados_paciente_paralelo", "paciente_nao_existe": "marcar_consulta"},
+    {
+        "paciente_existe": "obter_dados_paciente_paralelo",
+        "paciente_nao_existe": "marcar_consulta",
+        "erro_validacao": "tratar_erro_busca",
+    },
 )
 workflow.add_edge("obter_dados_paciente_paralelo", "consultar_modelo_llm")
 workflow.add_edge("consultar_modelo_llm", "gerar_explicacao")
@@ -514,6 +569,7 @@ workflow.add_conditional_edges(
 )
 workflow.add_edge("marcar_consulta", "registrar_log_auditoria")
 workflow.add_edge("emitir_alertas", "registrar_log_auditoria")
+workflow.add_edge("tratar_erro_busca", "registrar_log_auditoria")
 
 workflow.set_entry_point("obter_entrada")
 workflow.set_finish_point("registrar_log_auditoria")
@@ -522,34 +578,23 @@ app = workflow.compile()
 print("Estrutura do grafo:")
 print(app.get_graph().draw_ascii())
 
-# Dados de entrada para teste do fluxo
-entrada = {
-    "nome": "Lara Abreu",
-    "cpf": "***.917.803-**",
-}
 
 async def executar_fluxo():
-    import sys
-    print("\n" + "="*60, file=sys.stderr)
-    print("Iniciando teste do fluxo LangGraph (ASYNC PARALELO)", file=sys.stderr)
-    print("="*60, file=sys.stderr)
-    print(f"Entrada: {entrada}\n", file=sys.stderr)
+    resultado = await app.ainvoke({})
 
-    resultado = await app.ainvoke(entrada)
-
-    print("\n" + "="*60, file=sys.stderr)
-    print("RESULTADO DO FLUXO", file=sys.stderr)
-    print("="*60, file=sys.stderr)
-    print(f"Mensagem Final: {resultado.get('mensagem_final', '<sem retorno>')}", file=sys.stderr)
-    print(f"Paciente Existe: {resultado.get('ja_existe')}", file=sys.stderr)
-    print(f"Analise LLM: {resultado.get('analise_llm', 'N/A')}", file=sys.stderr)
-    print(f"Explicacao: {resultado.get('explicacao', 'N/A')}", file=sys.stderr)
-    print(f"Tratamentos: {resultado.get('tratamentos', 'N/A')}", file=sys.stderr)
-    print(f"Tratamento Necessario: {resultado.get('tratamento_necessario')}", file=sys.stderr)
-    print(f"Alertas: {resultado.get('alertas', [])}", file=sys.stderr)
-    print(f"Agendamento: {resultado.get('agendamento', 'N/A')}", file=sys.stderr)
-    print(f"Log ID: {resultado.get('log_id', 'N/A')}", file=sys.stderr)
-    print("="*60, file=sys.stderr)
+    print("\n" + "="*60)
+    print("RESULTADO DO FLUXO")
+    print("="*60)
+    print(f"Mensagem Final: {resultado.get('mensagem_final', '<sem retorno>')}")
+    print(f"Paciente Existe: {resultado.get('ja_existe')}")
+    print(f"Analise LLM: {resultado.get('analise_llm', 'N/A')}")
+    print(f"Explicacao: {resultado.get('explicacao', 'N/A')}")
+    print(f"Tratamentos: {resultado.get('tratamentos', 'N/A')}")
+    print(f"Tratamento Necessario: {resultado.get('tratamento_necessario')}")
+    print(f"Alertas: {resultado.get('alertas', [])}")
+    print(f"Agendamento: {resultado.get('agendamento', 'N/A')}")
+    print(f"Log ID: {resultado.get('log_id', 'N/A')}")
+    print("="*60)
 
 
 if __name__ == "__main__":
