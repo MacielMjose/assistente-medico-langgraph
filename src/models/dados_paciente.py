@@ -13,9 +13,11 @@ class DadosPaciente(TypedDict, total=False):
     tratamento_necessario: bool
     mensagem_final: str
     analise_llm: str
+    alergias_extraidas: Optional[list[dict]]
     explicacao: str
     validacao_profissional: dict
     tratamentos: str
+    validacao_alergias: Optional[dict]
     agendamento: Optional[dict]
     alertas: list[str]
     log_id: Optional[Any]

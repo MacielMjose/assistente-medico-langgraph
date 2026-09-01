@@ -14,6 +14,7 @@ from src.db.repos.log_repo import LogRepositorio
 from src.db.buscar.buscar_repo import BuscaRepositorio
 from src.db.embeddings import obter_provedor
 from src.db.models import EntradaLog
+import re
 
 llm = get_llm()
 
@@ -53,6 +54,34 @@ prompt_tratamento = PromptTemplate(
                 Sugira tratamentos e cuidados recomendados para o paciente.
                 Responda em formato de lista com recomendações práticas.
                 Considere o histórico clínico disponível."""
+)
+
+prompt_extrair_alergias = PromptTemplate(
+    input_variables=["analise"],
+    template="""Análise clínica: {analise}
+
+                Extraia TODAS as alergias, intolerâncias ou contraindicações mencionadas.
+                Responda em JSON puro (sem markdown) com este formato:
+                {{"alergias": [
+                    {{"nome": "Penicilina", "tipo": "medicamento", "severidade": "grave", "reacao": "anafilaxia"}},
+                    {{"nome": "Glúten", "tipo": "alimento", "severidade": "leve", "reacao": "dor abdominal"}}
+                ]}}
+
+                Se não houver alergias, retorne: {{"alergias": []}}"""
+)
+
+prompt_validar_medicamentos = PromptTemplate(
+    input_variables=["tratamentos", "alergias"],
+    template="""Tratamentos sugeridos: {tratamentos}
+                Alergias do paciente: {alergias}
+
+                Verifique se há CONFLITO entre medicamentos e alergias.
+                Responda em JSON puro com este formato:
+                {{"conflitos": [
+                    {{"medicamento": "Amoxicilina", "alergia": "Penicilina", "risco": "anafilaxia"}},
+                ], "seguro": true/false}}
+
+                Se não houver conflitos, retorne: {{"conflitos": [], "seguro": true}}"""
 )
 
 
@@ -241,6 +270,30 @@ def gerar_explicacao(state: DadosPaciente) -> DadosPaciente:
     return state
 
 
+def extrair_alergias(state: DadosPaciente) -> DadosPaciente:
+    """Extrai alergias mencionadas na análise do LLM."""
+    analise = state.get("analise_llm", "")
+
+    if not analise:
+        state["alergias_extraidas"] = []
+        return state
+
+    try:
+        prompt_msg = prompt_extrair_alergias.format(analise=analise)
+        response = llm.invoke(prompt_msg)
+        resposta_texto = response.content.strip()
+
+        # Tentar parse JSON
+        import json as json_lib
+        resultado = json_lib.loads(resposta_texto)
+        state["alergias_extraidas"] = resultado.get("alergias", [])
+    except Exception as e:
+        print(f"Erro ao extrair alergias: {e}")
+        state["alergias_extraidas"] = []
+
+    return state
+
+
 def validar_com_profissional(state: DadosPaciente) -> DadosPaciente:
     state["validacao_profissional"] = {
         "validado": True,
@@ -263,6 +316,62 @@ def sugerir_tratamentos(state: DadosPaciente) -> DadosPaciente:
     except Exception:
         state["tratamento_necessario"] = False
         state["tratamentos"] = "Não foi possível sugerir tratamentos."
+
+    return state
+
+
+def validar_alergias_guardrail(state: DadosPaciente) -> DadosPaciente:
+    """Guardrail: Valida medicamentos sugeridos contra alergias extraídas."""
+    alergias = state.get("alergias_extraidas", [])
+    tratamentos = state.get("tratamentos", "")
+
+    state["validacao_alergias"] = {
+        "conflitos": [],
+        "seguro": True,
+        "avisos": []
+    }
+
+    if not alergias or not tratamentos:
+        return state
+
+    try:
+        import json as json_lib
+
+        # Converter alergias para texto legível
+        alergias_texto = json_lib.dumps(alergias, ensure_ascii=False, indent=2)
+
+        # Usar LLM para validar
+        prompt_msg = prompt_validar_medicamentos.format(
+            tratamentos=tratamentos,
+            alergias=alergias_texto
+        )
+
+        response = llm.invoke(prompt_msg)
+        resultado_texto = response.content.strip()
+        resultado = json_lib.loads(resultado_texto)
+
+        conflitos = resultado.get("conflitos", [])
+        seguro = resultado.get("seguro", True)
+
+        if conflitos:
+            state["validacao_alergias"]["seguro"] = False
+            state["validacao_alergias"]["conflitos"] = conflitos
+            avisos = [
+                f"⚠️ ALERTA: {c['medicamento']} pode causar {c['risco']} (alergia a {c['alergia']})"
+                for c in conflitos
+            ]
+            state["validacao_alergias"]["avisos"] = avisos
+
+            # Bloquear tratamento se houver conflito crítico
+            state["tratamento_necessario"] = False
+            state["tratamentos"] = (
+                f"❌ TRATAMENTOS BLOQUEADOS POR GUARDRAIL DE SEGURANÇA:\n"
+                f"{chr(10).join(avisos)}\n\n"
+                f"Procure a equipe médica para revisar as recomendações."
+            )
+
+    except Exception as e:
+        print(f"Erro ao validar alergias: {e}")
 
     return state
 
