@@ -282,45 +282,49 @@ class TestExecutarObterProntuarios:
 
 
 # ---------------------------------------------------------------------------
-# _executar_recuperar_documentos
+# _executar_recuperar_conhecimento
 # ---------------------------------------------------------------------------
 
-class TestExecutarRecuperarDocumentos:
+class TestExecutarRecuperarConhecimento:
     def test_sem_prontuarios_retorna_lista_vazia(self):
-        resultado = asyncio.run(main._executar_recuperar_documentos([]))
+        resultado = asyncio.run(main._executar_recuperar_conhecimento([]))
 
-        assert resultado == {"documentos_similares": []}
+        assert resultado == {"conhecimento_recuperado": [], "fontes_utilizadas": []}
 
     def test_prontuarios_sem_texto_util_retorna_vazio(self, monkeypatch):
         provedor_mock = MagicMock()
         monkeypatch.setattr(main, "obter_provedor", MagicMock(return_value=provedor_mock))
-        monkeypatch.setattr(main.busca_repo, "buscar_vetorial", MagicMock())
+        monkeypatch.setattr(main.busca_repo, "buscar_conhecimento", MagicMock())
 
-        resultado = asyncio.run(main._executar_recuperar_documentos([{"queixa": "", "conduta": ""}]))
+        resultado = asyncio.run(main._executar_recuperar_conhecimento([{"queixa": "", "conduta": ""}]))
 
-        assert resultado == {"documentos_similares": []}
-        main.busca_repo.buscar_vetorial.assert_not_called()
+        assert resultado == {"conhecimento_recuperado": [], "fontes_utilizadas": []}
+        main.busca_repo.buscar_conhecimento.assert_not_called()
 
-    def test_sucesso_retorna_documentos_formatados(self, monkeypatch):
+    def test_sucesso_retorna_conhecimento_e_fontes(self, monkeypatch):
         resultado_busca = SimpleNamespace(
-            atendimento_id=10,
+            conteudo="conteúdo de protocolo",
             similaridade=0.87,
-            conteudo="conteúdo relevante",
-            condicao="Asma",
-            especialidade_principal="Pneumologia",
-            data_atendimento=datetime.now(),
+            fonte="Protocolo Clínico - Doenças Respiratórias",
+            tipo_documento="protocol",
+            titulo="Protocolo de Atendimento",
+            autor="Departamento de Pneumologia",
+            ano="2024",
         )
         monkeypatch.setattr(main, "obter_provedor", MagicMock(return_value=MagicMock()))
         monkeypatch.setattr(
-            main.busca_repo, "buscar_vetorial", MagicMock(return_value=[resultado_busca])
+            main.busca_repo, "buscar_conhecimento", MagicMock(return_value=[resultado_busca])
         )
 
         resultado = asyncio.run(
-            main._executar_recuperar_documentos([{"queixa": "Tosse", "conduta": "Xarope"}])
+            main._executar_recuperar_conhecimento([{"queixa": "Tosse", "conduta": "Xarope"}])
         )
 
-        assert len(resultado["documentos_similares"]) == 1
-        assert resultado["documentos_similares"][0]["condicao"] == "Asma"
+        assert len(resultado["conhecimento_recuperado"]) == 1
+        assert resultado["conhecimento_recuperado"][0]["fonte"] == "Protocolo Clínico - Doenças Respiratórias"
+        assert resultado["conhecimento_recuperado"][0]["tipo_documento"] == "protocol"
+        assert resultado["fontes_utilizadas"][0]["titulo"] == "Protocolo de Atendimento"
+        assert resultado["fontes_utilizadas"][0]["autor"] == "Departamento de Pneumologia"
 
     def test_excecao_retorna_lista_vazia(self, monkeypatch):
         monkeypatch.setattr(
@@ -328,10 +332,10 @@ class TestExecutarRecuperarDocumentos:
         )
 
         resultado = asyncio.run(
-            main._executar_recuperar_documentos([{"queixa": "Tosse", "conduta": "Xarope"}])
+            main._executar_recuperar_conhecimento([{"queixa": "Tosse", "conduta": "Xarope"}])
         )
 
-        assert resultado == {"documentos_similares": []}
+        assert resultado == {"conhecimento_recuperado": [], "fontes_utilizadas": []}
 
 
 # ---------------------------------------------------------------------------
@@ -344,26 +348,28 @@ class TestObterDadosPacienteParalelo:
 
         assert estado["prontuarios"] == []
         assert estado["exames"] == []
-        assert estado["documentos_similares"] == []
+        assert estado["conhecimento_recuperado"] == []
+        assert estado["fontes_utilizadas"] == []
 
-    def test_com_paciente_encadeia_prontuarios_e_documentos(self, monkeypatch):
+    def test_com_paciente_encadeia_prontuarios_e_conhecimento(self, monkeypatch):
         paciente = _paciente(id_=42)
 
         async def fake_obter_prontuarios(paciente_id):
             assert paciente_id == 42
             return {"prontuarios": [{"queixa": "Febre", "conduta": "Antitérmico"}], "exames": [], "data_ultima_consulta": None}
 
-        async def fake_recuperar_documentos(prontuarios):
+        async def fake_recuperar_conhecimento(prontuarios):
             assert prontuarios == [{"queixa": "Febre", "conduta": "Antitérmico"}]
-            return {"documentos_similares": [{"condicao": "Gripe"}]}
+            return {"conhecimento_recuperado": [{"fonte": "Protocolo"}], "fontes_utilizadas": [{"fonte": "Protocolo"}]}
 
         monkeypatch.setattr(main, "_executar_obter_prontuarios", fake_obter_prontuarios)
-        monkeypatch.setattr(main, "_executar_recuperar_documentos", fake_recuperar_documentos)
+        monkeypatch.setattr(main, "_executar_recuperar_conhecimento", fake_recuperar_conhecimento)
 
         estado = asyncio.run(main.obter_dados_paciente_paralelo({"paciente": paciente}))
 
         assert estado["prontuarios"] == [{"queixa": "Febre", "conduta": "Antitérmico"}]
-        assert estado["documentos_similares"] == [{"condicao": "Gripe"}]
+        assert estado["conhecimento_recuperado"] == [{"fonte": "Protocolo"}]
+        assert estado["fontes_utilizadas"] == [{"fonte": "Protocolo"}]
 
 
 # ---------------------------------------------------------------------------
@@ -375,7 +381,7 @@ class TestConsultarModeloLlm:
         mock_llm.invoke.return_value = _resposta_llm("Análise clínica detalhada")
 
         estado = main.consultar_modelo_llm(
-            {"nome": "João", "prontuarios": [], "exames": [], "documentos_similares": []}
+            {"nome": "João", "prontuarios": [], "exames": [], "conhecimento_recuperado": []}
         )
 
         assert estado["analise_llm"] == "Análise clínica detalhada"
@@ -384,11 +390,53 @@ class TestConsultarModeloLlm:
         mock_llm.invoke.side_effect = RuntimeError("timeout")
 
         estado = main.consultar_modelo_llm(
-            {"nome": "João", "prontuarios": [], "exames": [], "documentos_similares": []}
+            {"nome": "João", "prontuarios": [], "exames": [], "conhecimento_recuperado": []}
         )
 
         assert "Erro ao consultar LLM" in estado["analise_llm"]
         assert "timeout" in estado["analise_llm"]
+
+    def test_prompt_inclui_conhecimento_com_fontes(self, mock_llm):
+        mock_llm.invoke.return_value = _resposta_llm("Análise")
+
+        conhecimento = [
+            {
+                "fonte": "Protocolo Clínico - Doenças Respiratórias",
+                "tipo_documento": "protocol",
+                "titulo": "Protocolo de Atendimento",
+                "autor": "Depto. Pneumologia",
+                "ano": "2024",
+                "similaridade": 0.9,
+                "conteudo": "Conteúdo contextual do protocolo.",
+            }
+        ]
+
+        main.consultar_modelo_llm(
+            {
+                "nome": "João",
+                "prontuarios": [],
+                "exames": [],
+                "conhecimento_recuperado": conhecimento,
+            }
+        )
+
+        chamada = mock_llm.invoke.call_args.args[0]
+        assert "[1]" in chamada
+        assert "Protocolo Clínico - Doenças Respiratórias" in chamada
+        assert "Protocolo de Atendimento" in chamada
+        assert "Depto. Pneumologia" in chamada
+
+    def test_prompt_inclui_disclaimer_de_seguranca(self, mock_llm):
+        mock_llm.invoke.return_value = _resposta_llm("Análise")
+
+        main.consultar_modelo_llm(
+            {"nome": "João", "prontuarios": [], "exames": [], "conhecimento_recuperado": []}
+        )
+
+        chamada = mock_llm.invoke.call_args.args[0]
+        normalizado = " ".join(chamada.lower().split())
+        assert "validadas" in normalizado
+        assert "profissional de saúde" in normalizado
 
 
 # ---------------------------------------------------------------------------
@@ -717,4 +765,67 @@ class TestRegistrarLogAuditoria:
             {"nome": "João", "ja_existe": False, "tratamento_necessario": False, "mensagem_final": ""}
         )
 
-        assert estado["mensagem_final"].strip() == "Analise concluida para João."
+        assert estado["mensagem_final"].strip().startswith("Analise concluida para João.")
+        assert "validadas por um profissional de saúde" in estado["mensagem_final"]
+
+    def test_mensagem_inclui_fontes_consultadas(self, monkeypatch):
+        monkeypatch.setattr(main.log_repo, "registrar_log", MagicMock(return_value=1))
+
+        fontes = [
+            {
+                "fonte": "Protocolo Clínico - Doenças Respiratórias",
+                "tipo_documento": "protocol",
+                "titulo": "Protocolo de Atendimento",
+                "autor": "Depto. Pneumologia",
+                "ano": "2024",
+            },
+            {
+                "fonte": "Referência Bibliográfica - Dor Crônica",
+                "tipo_documento": "reference",
+                "titulo": "Classificação e Manejo da Dor Crônica",
+                "autor": "ABED",
+                "ano": "2023",
+            },
+        ]
+
+        estado = main.registrar_log_auditoria(
+            {
+                "nome": "João",
+                "ja_existe": True,
+                "tratamento_necessario": False,
+                "mensagem_final": "",
+                "fontes_utilizadas": fontes,
+            }
+        )
+
+        assert "Fontes consultadas:" in estado["mensagem_final"]
+        assert "[1] Protocolo de Atendimento - Depto. Pneumologia (2024)" in estado["mensagem_final"]
+        assert "[2] Classificação e Manejo da Dor Crônica - ABED (2023)" in estado["mensagem_final"]
+
+    def test_mensagem_sem_fontes_nao_mostra_secao(self, monkeypatch):
+        monkeypatch.setattr(main.log_repo, "registrar_log", MagicMock(return_value=1))
+
+        estado = main.registrar_log_auditoria(
+            {"nome": "João", "ja_existe": False, "tratamento_necessario": False, "mensagem_final": ""}
+        )
+
+        assert "Fontes consultadas" not in estado["mensagem_final"]
+
+    def test_log_inclui_fontes_no_detalhe(self, monkeypatch):
+        mock_log = MagicMock(return_value=1)
+        monkeypatch.setattr(main.log_repo, "registrar_log", mock_log)
+
+        fontes = [{"fonte": "Protocolo", "tipo_documento": "protocol", "titulo": "Título"}]
+
+        main.registrar_log_auditoria(
+            {
+                "nome": "João",
+                "ja_existe": True,
+                "tratamento_necessario": False,
+                "mensagem_final": "",
+                "fontes_utilizadas": fontes,
+            }
+        )
+
+        entrada = mock_log.call_args.args[0]
+        assert entrada.detalhe["fontes_utilizadas"] == fontes

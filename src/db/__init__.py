@@ -16,6 +16,7 @@ from src.db.models import (
     Exame,
     Paciente,
     ResultadoBusca,
+    ResultadoConhecimento,
 )
 from src.db.buscar import BuscaRepositorio
 from src.db.embeddings import (
@@ -30,7 +31,13 @@ from src.db.repos import (
     LogRepositorio,
     PacienteRepositorio,
 )
-from src.db.vectorstore import apagar_colecao, estatisticas_chunks, obter_vectorstore
+from src.db.vectorstore import (
+    apagar_colecao,
+    estatisticas_chunks,
+    obter_vectorstore,
+    obter_vectorstore_conhecimento,
+    colecao_conhecimento_para,
+)
 
 __all__ = [
     "conectar",
@@ -45,6 +52,8 @@ __all__ = [
     "dividir_em_chunks",
     "nome_modelo_do",
     "obter_vectorstore",
+    "obter_vectorstore_conhecimento",
+    "colecao_conhecimento_para",
     "apagar_colecao",
     "estatisticas_chunks",
     "AgendamentoRepositorio",
@@ -58,6 +67,7 @@ __all__ = [
     "Exame",
     "Agendamento",
     "ResultadoBusca",
+    "ResultadoConhecimento",
     "EntradaLog",
     "EstatisticasBase",
 ]

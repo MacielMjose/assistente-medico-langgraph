@@ -129,9 +129,52 @@ busca = BuscaRepositorio()
 # busca textual (full-text em português)
 busca.buscar_texto("dor lombar", condicao="Hérnia Inguinal", limite=5)
 
-# busca semântica (LangChain/PGVector)
+# busca semântica (LangChain/PGVector) — coleção de atendimentos
 busca.buscar_vetorial("dor lombar ao levantar peso", obter_provedor("mock"), k=5)
+
+# busca semântica (LangChain/PGVector) — coleção de conhecimento contextual
+busca.buscar_conhecimento("paciente com asma e falta de ar", obter_provedor("mock"), k=5)
 ```
+
+## Conhecimento contextual (RAG para explainability)
+
+O pipeline RAG **não** trata a coleção de atendimentos como conhecimento para a LLM.
+Os dados estruturados (pacientes, atendimentos, condutas) continuam sendo obtidos
+diretamente do banco relacional. O que alimenta a busca vetorial para enriquecer a
+resposta da LLM é a **coleção de conhecimento contextual**, separada por coleção
+(`assistente_medico_conhecimento_<modelo>`).
+
+### Ingerir documentos de conhecimento (demonstração)
+
+Documentos de exemplo (protocolos, casos de estudo, diretrizes, referências) estão
+em `database/conhecimento/documentos_exemplo.py` e são identificados como dados de
+demonstração — não são publicações reais.
+
+```bash
+python database/conhecimento/ingestao_conhecimento.py --provider mock
+python database/conhecimento/ingestao_conhecimento.py --provider openai --reset-colecao
+```
+
+### Metadata de fonte
+
+Cada documento de conhecimento carrega metadata de rastreabilidade:
+
+| Campo            | Exemplo                                         |
+|------------------|-------------------------------------------------|
+| `source`         | "Protocolo Clínico - Condições Respiratórias"   |
+| `document_type`  | `protocol` / `case_study` / `guideline` / `reference` |
+| `title`          | "Protocolo de Atendimento - Doenças Respiratórias" |
+| `author`         | "Departamento de Pneumologia"                   |
+| `year`           | "2024"                                          |
+
+Essa metadata permite que a resposta final da LLM exiba **"Fontes consultadas"**,
+cada uma rastreável até o documento recuperado pelo vector store.
+
+### Testes
+
+`tests/test_conhecimento.py` valida ingestão, separação de coleções e retorno de
+fontes. Os testes de busca por atendimentos (`tests/test_embeddings.py`) permanecem
+válidos para a coleção legada.
 
 ## Validar a base gerada
 

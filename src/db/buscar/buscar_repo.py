@@ -1,8 +1,14 @@
-"""Busca em prontuários: híbrida (full-text ts_rank + vetorial via LangChain)."""
+"""Busca em prontuários: híbrida (full-text ts_rank + vetorial via LangChain).
 
-from src.db.models import ResultadoBusca, ResultadoVetorial
+A busca vetorial padrão (buscar_vetorial) continua operando sobre a coleção
+de atendimentos para retrocompatibilidade. A nova busca de conhecimento
+(buscar_conhecimento) opera sobre a coleção dedicada de documentos de
+conhecimento contextual, retornando fontes rastreáveis.
+"""
+
+from src.db.models import ResultadoBusca, ResultadoConhecimento, ResultadoVetorial
 from src.db.repos.base import RepositorioBase
-from src.db.vectorstore import obter_vectorstore
+from src.db.vectorstore import obter_vectorstore, obter_vectorstore_conhecimento
 
 LIMITE_PADRAO_BUSCA = 10
 
@@ -78,6 +84,37 @@ class BuscaRepositorio(RepositorioBase):
                     condicao=meta.get("condicao", ""),
                     especialidade_principal=meta.get("especialidade_principal", ""),
                     data_atendimento=meta.get("data_atendimento"),
+                )
+            )
+        return resultados
+
+    def buscar_conhecimento(
+        self,
+        consulta: str,
+        provedor,
+        k: int = 5,
+    ) -> list[ResultadoConhecimento]:
+        """Busca por similaridade semântica na coleção de conhecimento contextual.
+
+        Retorna documentos de conhecimento (protocolos, casos de estudo,
+        diretrizes, referências) com metadata de fonte para rastreabilidade.
+        """
+        vetorstore = obter_vectorstore_conhecimento(provedor, dsn=self._dsn)
+
+        pares = vetorstore.similarity_search_with_score(consulta, k=k)
+        resultados = []
+        for documento, distancia in pares:
+            meta = documento.metadata
+            resultados.append(
+                ResultadoConhecimento(
+                    conteudo=documento.page_content,
+                    similaridade=round(1.0 - float(distancia), 4),
+                    fonte=meta.get("source", "Fonte não identificada"),
+                    tipo_documento=meta.get("document_type", "unknown"),
+                    titulo=meta.get("title", "Sem título"),
+                    autor=meta.get("author"),
+                    ano=meta.get("year"),
+                    metadata_completa=meta,
                 )
             )
         return resultados

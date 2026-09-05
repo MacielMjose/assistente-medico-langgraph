@@ -27,16 +27,28 @@ busca_repo = BuscaRepositorio()
 # Prompts templates
 prompt_analise_inicial = PromptTemplate(
         input_variables=["nome", "data_ultima_consulta", "prontuarios", "exames", "contexto_documentos"],
-        template="""Paciente: {nome}
-                    Última consulta: {data_ultima_consulta}
+        template="""Você é um assistente médico de apoio à decisão clínica. Você NUNCA prescreve
+medicamentos nem toma decisões médicas de forma autônoma e definitiva. Suas análises e
+recomendações são instrumentos de apoio e devem sempre ser validadas por um profissional
+de saúde habilitado antes de qualquer aplicação.
 
-                    Prontuários recentes:
-                    {prontuarios}
+Paciente: {nome}
+Última consulta: {data_ultima_consulta}
 
-                    Exames recentes:
-                    {exames}{contexto_documentos}
+Prontuários recentes (dados estruturados do sistema):
+{prontuarios}
 
-                    Com base no histórico do paciente e documentos similares, qual é sua análise inicial sobre a saúde e bem-estar?"""
+Exames recentes:
+{exames}{contexto_documentos}
+
+Utilize os dados estruturados do paciente para descrever o quadro clínico e utilize o
+conhecimento de referência recuperado (se presente) para fundamentar, contextualizar ou
+enriquecer a sua análise. Quando utilizar informações vindas do conhecimento recuperado,
+cite a fonte correspondente indicando o número da referência, por exemplo: "Conforme a
+referência [1]". Não invente fontes que não estejam presentes no conhecimento fornecido.
+
+Com base no histórico do paciente e no conhecimento recuperado, qual é sua análise inicial
+sobre a saúde e bem-estar? Indique claramente quais fontes você utilizou."""
 )
 
 prompt_explicacao = PromptTemplate(
@@ -53,7 +65,13 @@ prompt_tratamento = PromptTemplate(
 
                 Sugira tratamentos e cuidados recomendados para o paciente.
                 Responda em formato de lista com recomendações práticas.
-                Considere o histórico clínico disponível."""
+                Considere o histórico clínico disponível.
+
+                IMPORTANTE: As sugestões abaixo são apenas apoio à decisão clínica e NÃO
+                constituem prescrição médica definitiva. Toda recomendação deve ser
+                validada e autorizada por um profissional de saúde habilitado antes de
+                qualquer aplicação. Não emita posologia exata como se fosse prescrição
+                autônoma; descreva a abordagem geral e a necessidade de avaliação médica."""
 )
 
 prompt_extrair_alergias = PromptTemplate(
@@ -206,9 +224,15 @@ async def _executar_obter_prontuarios(paciente_id):
         return {"prontuarios": [], "exames": [], "data_ultima_consulta": None}
 
 
-async def _executar_recuperar_documentos(prontuarios):
+async def _executar_recuperar_conhecimento(prontuarios):
+    """Recupera conhecimento contextual (protocolos, casos, diretrizes) via RAG.
+
+    Usa os prontuários do paciente para montar a consulta semântica e busca na
+    coleção de conhecimento (separada da coleção de atendimentos). Retorna os
+    documentos recuperados junto com a metadata de fonte para rastreabilidade.
+    """
     if not prontuarios:
-        return {"documentos_similares": []}
+        return {"conhecimento_recuperado": [], "fontes_utilizadas": []}
 
     try:
         consulta = " ".join(
@@ -216,47 +240,61 @@ async def _executar_recuperar_documentos(prontuarios):
         ).strip()
 
         if not consulta:
-            return {"documentos_similares": []}
+            return {"conhecimento_recuperado": [], "fontes_utilizadas": []}
 
         provedor = obter_provedor(os.getenv("MEDPT_EMBEDDING_PROVIDER", "mock"))
         resultados = await asyncio.to_thread(
-            busca_repo.buscar_vetorial, consulta, provedor, 5
+            busca_repo.buscar_conhecimento, consulta, provedor, 5
         )
 
+        conhecimento = [
+            {
+                "fonte": r.fonte,
+                "tipo_documento": r.tipo_documento,
+                "titulo": r.titulo,
+                "autor": r.autor,
+                "ano": r.ano,
+                "similaridade": r.similaridade,
+                "conteudo": r.conteudo,
+            }
+            for r in resultados
+        ]
+        fontes = [
+            {
+                "fonte": r.fonte,
+                "tipo_documento": r.tipo_documento,
+                "titulo": r.titulo,
+                "autor": r.autor,
+                "ano": r.ano,
+            }
+            for r in resultados
+        ]
         return {
-            "documentos_similares": [
-                {
-                    "atendimento_id": r.atendimento_id,
-                    "similaridade": r.similaridade,
-                    "conteudo": r.conteudo,
-                    "condicao": r.condicao,
-                    "especialidade": r.especialidade_principal,
-                    "data_atendimento": r.data_atendimento,
-                }
-                for r in resultados
-            ]
+            "conhecimento_recuperado": conhecimento,
+            "fontes_utilizadas": fontes,
         }
     except Exception:
-        return {"documentos_similares": []}
+        return {"conhecimento_recuperado": [], "fontes_utilizadas": []}
 
 
 async def obter_dados_paciente_paralelo(state: DadosPaciente) -> DadosPaciente:
-    """Executa obter_prontuarios e recuperar_documentos com dependência"""
+    """Executa obter_prontuarios e recuperar conhecimento com dependência"""
     paciente = state.get("paciente")
 
     if not paciente:
         state["prontuarios"] = []
         state["exames"] = []
-        state["documentos_similares"] = []
+        state["conhecimento_recuperado"] = []
+        state["fontes_utilizadas"] = []
         return state
 
     # Primeiro: obter prontuários (necessário para busca vetorial)
     resultado_prontuarios = await _executar_obter_prontuarios(paciente.id)
     state.update(resultado_prontuarios)
 
-    # Segundo: recuperar documentos similares (depende dos prontuários)
-    resultado_docs = await _executar_recuperar_documentos(resultado_prontuarios["prontuarios"])
-    state.update(resultado_docs)
+    # Segundo: recuperar conhecimento contextual (depende dos prontuários)
+    resultado_conhecimento = await _executar_recuperar_conhecimento(resultado_prontuarios["prontuarios"])
+    state.update(resultado_conhecimento)
 
     return state
 
@@ -265,18 +303,9 @@ def consultar_modelo_llm(state: DadosPaciente) -> DadosPaciente:
     nome = state.get("nome", "")
     prontuarios = state.get("prontuarios", [])
     exames = state.get("exames", [])
-    documentos_similares = state.get("documentos_similares", [])
+    conhecimento_recuperado = state.get("conhecimento_recuperado", [])
 
-    contexto_documentos = ""
-    if documentos_similares:
-        contexto_documentos = "\n\nDocumentos similares recuperados (RAG):\n"
-        for doc in documentos_similares:
-            contexto_documentos += f"""
-                - Condição: {doc.get('condicao', 'N/A')}
-                Similaridade: {doc.get('similaridade', 0):.2%}
-                Data: {doc.get('data_atendimento', 'N/A')}
-                Conteúdo: {doc.get('conteudo', 'N/A')[:200]}...
-            """
+    contexto_documentos = _formatar_contexto_conhecimento(conhecimento_recuperado)
 
     contexto = prompt_analise_inicial.format(
         nome=nome,
@@ -293,6 +322,32 @@ def consultar_modelo_llm(state: DadosPaciente) -> DadosPaciente:
         state["analise_llm"] = f"Erro ao consultar LLM: {str(e)}"
 
     return state
+
+
+def _formatar_contexto_conhecimento(conhecimento_recuperado) -> str:
+    """Formata o conhecimento recuperado com fontes numeradas para o prompt.
+
+    Cada documento recebe um número de referência [1], [2], ... que a LLM pode
+    citar na resposta e que é mapeado de volta à fonte original.
+    """
+    if not conhecimento_recuperado:
+        return ""
+
+    linhas = [
+        "\n\nConhecimento de referência recuperado (RAG):\n",
+        "O texto a seguir é conhecimento contextual para fundamentar sua análise. "
+        "Cite a fonte correspondente ao utilizá-la, ex.: 'Conforme a referência [1]'.",
+    ]
+    for indice, doc in enumerate(conhecimento_recuperado, start=1):
+        linhas.append(
+            f"\n[{indice}] Fonte: {doc.get('fonte', 'N/A')}"
+            f"\n    Título: {doc.get('titulo', 'N/A')}"
+            f"\n    Tipo: {doc.get('tipo_documento', 'N/A')}"
+            f"\n    Autor: {doc.get('autor', 'N/A') or 'N/A'}"
+            f"\n    Ano: {doc.get('ano', 'N/A') or 'N/A'}"
+            f"\n    Conteúdo: {doc.get('conteudo', 'N/A')[:400]}"
+        )
+    return "\n".join(linhas)
 
 
 def gerar_explicacao(state: DadosPaciente) -> DadosPaciente:
@@ -481,6 +536,7 @@ def registrar_log_auditoria(state: DadosPaciente) -> DadosPaciente:
         "timestamp": datetime.now().isoformat(),
         "alertas": state.get("alertas", []),
         "agendamento_id": agendamento.get("id"),
+        "fontes_utilizadas": state.get("fontes_utilizadas", []),
     }
 
     try:
@@ -501,9 +557,35 @@ def registrar_log_auditoria(state: DadosPaciente) -> DadosPaciente:
             mensagem += f"Consulta agendada para {state['agendamento']['data']}. "
         if state.get("alertas"):
             mensagem += f"Alertas: {', '.join(state['alertas'])}"
+        mensagem += _formatar_fontes_para_mensagem(state.get("fontes_utilizadas", []))
+        mensagem += ("\n⚠️ IMPORTANTE: Esta análise é uma ferramenta de apoio à decisão "
+                     "clínica. As recomendações devem ser validadas por um profissional "
+                     "de saúde habilitado antes de qualquer aplicação.")
         state["mensagem_final"] = mensagem
 
     return state
+
+
+def _formatar_fontes_para_mensagem(fontes) -> str:
+    """Converte as fontes recuperadas pelo RAG em texto legível para o usuário."""
+    if not fontes:
+        return ""
+
+    partes = ["\n\nFontes consultadas:"]
+    for indice, fonte in enumerate(
+        [f for f in fontes if f], start=1
+    ):
+        titulo = fonte.get("titulo", "Sem título")
+        autor = fonte.get("autor")
+        ano = fonte.get("ano")
+        base = f"  [{indice}] {titulo}"
+        if autor:
+            base += f" - {autor}"
+        if ano:
+            base += f" ({ano})"
+        partes.append(base)
+
+    return "\n".join(partes)
 
 
 def tratar_erro_busca(state: DadosPaciente) -> DadosPaciente:
@@ -594,6 +676,7 @@ async def executar_fluxo():
     print(f"Alertas: {resultado.get('alertas', [])}")
     print(f"Agendamento: {resultado.get('agendamento', 'N/A')}")
     print(f"Log ID: {resultado.get('log_id', 'N/A')}")
+    print(f"Fontes Utilizadas: {resultado.get('fontes_utilizadas', [])}")
     print("="*60)
 
 
