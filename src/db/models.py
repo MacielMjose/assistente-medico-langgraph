@@ -87,6 +87,9 @@ class ResultadoConhecimento(BaseModel):
     titulo: str
     autor: str | None = None
     ano: str | None = None
+    pagina: int | None = None
+    planilha: str | None = None
+    arquivo: str | None = None
     metadata_completa: dict = Field(default_factory=dict)
 
 

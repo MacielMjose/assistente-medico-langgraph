@@ -93,15 +93,23 @@ class BuscaRepositorio(RepositorioBase):
         consulta: str,
         provedor,
         k: int = 5,
+        source_type: str | None = None,
     ) -> list[ResultadoConhecimento]:
         """Busca por similaridade semântica na coleção de conhecimento contextual.
 
         Retorna documentos de conhecimento (protocolos, casos de estudo,
         diretrizes, referências) com metadata de fonte para rastreabilidade.
+
+        Args:
+            consulta: texto usado como consulta semântica.
+            provedor: instância de embeddings (mock/openai).
+            k: quantidade máxima de resultados.
+            source_type: filtro opcional por tipo de origem ("pdf"/"excel").
         """
         vetorstore = obter_vectorstore_conhecimento(provedor, dsn=self._dsn)
 
-        pares = vetorstore.similarity_search_with_score(consulta, k=k)
+        filtro = {"source_type": source_type} if source_type else None
+        pares = vetorstore.similarity_search_with_score(consulta, k=k, filter=filtro)
         resultados = []
         for documento, distancia in pares:
             meta = documento.metadata
@@ -110,11 +118,24 @@ class BuscaRepositorio(RepositorioBase):
                     conteudo=documento.page_content,
                     similaridade=round(1.0 - float(distancia), 4),
                     fonte=meta.get("source", "Fonte não identificada"),
-                    tipo_documento=meta.get("document_type", "unknown"),
-                    titulo=meta.get("title", "Sem título"),
+                    tipo_documento=meta.get("document_type", meta.get("source_type", "unknown")),
+                    titulo=meta.get("document_title", meta.get("title", "Sem título")),
                     autor=meta.get("author"),
                     ano=meta.get("year"),
+                    pagina=_int_ou_none(meta.get("page")),
+                    planilha=meta.get("sheet"),
+                    arquivo=meta.get("source"),
                     metadata_completa=meta,
                 )
             )
         return resultados
+
+
+def _int_ou_none(valor) -> int | None:
+    """Converte metadata de página para int, tolerando str/None."""
+    if valor is None:
+        return None
+    try:
+        return int(valor)
+    except (TypeError, ValueError):
+        return None

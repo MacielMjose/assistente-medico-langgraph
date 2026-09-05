@@ -25,3 +25,5 @@ class DadosPaciente(TypedDict, total=False):
     erro_busca: Optional[str]
     conhecimento_recuperado: Optional[list[dict]]
     fontes_utilizadas: Optional[list[dict]]
+    logging_rag: Optional[dict]
+    resposta_estruturada: Optional[dict]

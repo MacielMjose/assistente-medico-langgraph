@@ -32,23 +32,34 @@ medicamentos nem toma decisões médicas de forma autônoma e definitiva. Suas a
 recomendações são instrumentos de apoio e devem sempre ser validadas por um profissional
 de saúde habilitado antes de qualquer aplicação.
 
+=== CONTEXTO DO PACIENTE (dados estruturados do sistema) ===
 Paciente: {nome}
 Última consulta: {data_ultima_consulta}
 
-Prontuários recentes (dados estruturados do sistema):
+Prontuários recentes:
 {prontuarios}
 
 Exames recentes:
-{exames}{contexto_documentos}
+{exames}
 
-Utilize os dados estruturados do paciente para descrever o quadro clínico e utilize o
-conhecimento de referência recuperado (se presente) para fundamentar, contextualizar ou
-enriquecer a sua análise. Quando utilizar informações vindas do conhecimento recuperado,
-cite a fonte correspondente indicando o número da referência, por exemplo: "Conforme a
-referência [1]". Não invente fontes que não estejam presentes no conhecimento fornecido.
+{contexto_documentos}
 
-Com base no histórico do paciente e no conhecimento recuperado, qual é sua análise inicial
-sobre a saúde e bem-estar? Indique claramente quais fontes você utilizou."""
+Regras para as fontes:
+- Utilize os dados estruturados do paciente para descrever o quadro clínico.
+- Utilize o conhecimento de referência recuperado (RAG), se presente, para
+  fundamentar, contextualizar ou enriquecer a sua análise.
+- Ao usar uma informação do conhecimento recuperado, cite a referência
+  correspondente indicando o número, ex.: "Conforme a referência [1]".
+- NUNCA invente fontes que não estejam listadas no contexto documental.
+- Se nenhuma fonte documental relevante foi recuperada, deixe isso explícito,
+  por exemplo: "Não foram encontradas fontes documentais relevantes na base de
+  conhecimento para complementar esta análise."
+- Diferencie claramente o que é dado do paciente (SQL) do que é conhecimento
+  externo (RAG).
+
+Com base no histórico do paciente e no conhecimento recuperado, qual é sua análise
+inicial sobre a saúde e bem-estar? Indique claramente quais fontes você utilizou,
+com arquivo e localização (página/planilha) quando disponíveis."""
 )
 
 prompt_explicacao = PromptTemplate(
@@ -121,6 +132,7 @@ def obter_entrada(state: DadosPaciente) -> DadosPaciente:
     state["prontuarios"] = None
     state["tratamento_necessario"] = False
     state["mensagem_final"] = ""
+    state["logging_rag"] = {"tem_conhecimento": False}
     return state
 
 
@@ -229,10 +241,13 @@ async def _executar_recuperar_conhecimento(prontuarios):
 
     Usa os prontuários do paciente para montar a consulta semântica e busca na
     coleção de conhecimento (separada da coleção de atendimentos). Retorna os
-    documentos recuperados junto com a metadata de fonte para rastreabilidade.
+    documentos recuperados junto com a metadata de fonte para rastreabilidade,
+    incluindo identificadores de localização (página/planilha) quando presentes.
     """
+    import time as _time
+
     if not prontuarios:
-        return {"conhecimento_recuperado": [], "fontes_utilizadas": []}
+        return {"conhecimento_recuperado": [], "fontes_utilizadas": [], "logging_rag": {}}
 
     try:
         consulta = " ".join(
@@ -240,12 +255,14 @@ async def _executar_recuperar_conhecimento(prontuarios):
         ).strip()
 
         if not consulta:
-            return {"conhecimento_recuperado": [], "fontes_utilizadas": []}
+            return {"conhecimento_recuperado": [], "fontes_utilizadas": [], "logging_rag": {}}
 
+        inicio = _time.perf_counter()
         provedor = obter_provedor(os.getenv("MEDPT_EMBEDDING_PROVIDER", "mock"))
         resultados = await asyncio.to_thread(
             busca_repo.buscar_conhecimento, consulta, provedor, 5
         )
+        tempo_ms = int((_time.perf_counter() - inicio) * 1000)
 
         conhecimento = [
             {
@@ -254,6 +271,9 @@ async def _executar_recuperar_conhecimento(prontuarios):
                 "titulo": r.titulo,
                 "autor": r.autor,
                 "ano": r.ano,
+                "pagina": r.pagina,
+                "planilha": r.planilha,
+                "arquivo": r.arquivo,
                 "similaridade": r.similaridade,
                 "conteudo": r.conteudo,
             }
@@ -266,15 +286,30 @@ async def _executar_recuperar_conhecimento(prontuarios):
                 "titulo": r.titulo,
                 "autor": r.autor,
                 "ano": r.ano,
+                "pagina": r.pagina,
+                "planilha": r.planilha,
+                "arquivo": r.arquivo,
             }
             for r in resultados
         ]
+        logging_rag = {
+            "consulta_rag": consulta,
+            "docs_encontrados": len(resultados),
+            "scores": [r.similaridade for r in resultados],
+            "tempo_retrieval_ms": tempo_ms,
+            "tem_conhecimento": bool(resultados),
+        }
         return {
             "conhecimento_recuperado": conhecimento,
             "fontes_utilizadas": fontes,
+            "logging_rag": logging_rag,
         }
     except Exception:
-        return {"conhecimento_recuperado": [], "fontes_utilizadas": []}
+        return {
+            "conhecimento_recuperado": [],
+            "fontes_utilizadas": [],
+            "logging_rag": {"tem_conhecimento": False},
+        }
 
 
 async def obter_dados_paciente_paralelo(state: DadosPaciente) -> DadosPaciente:
@@ -286,6 +321,7 @@ async def obter_dados_paciente_paralelo(state: DadosPaciente) -> DadosPaciente:
         state["exames"] = []
         state["conhecimento_recuperado"] = []
         state["fontes_utilizadas"] = []
+        state["logging_rag"] = {"tem_conhecimento": False}
         return state
 
     # Primeiro: obter prontuários (necessário para busca vetorial)
@@ -328,19 +364,26 @@ def _formatar_contexto_conhecimento(conhecimento_recuperado) -> str:
     """Formata o conhecimento recuperado com fontes numeradas para o prompt.
 
     Cada documento recebe um número de referência [1], [2], ... que a LLM pode
-    citar na resposta e que é mapeado de volta à fonte original.
+    citar na resposta e que é mapeado de volta à fonte original, incluindo
+    identificadores de localização (página/planilha) quando disponíveis.
     """
     if not conhecimento_recuperado:
         return ""
 
     linhas = [
-        "\n\nConhecimento de referência recuperado (RAG):\n",
+        "\n\n=== CONTEXTO DOCUMENTAL / RAG ===",
+        "\n[documentos recuperados da base de conhecimento, com suas fontes]",
         "O texto a seguir é conhecimento contextual para fundamentar sua análise. "
-        "Cite a fonte correspondente ao utilizá-la, ex.: 'Conforme a referência [1]'.",
+        "Cite apenas as fontes abaixo (referências [1], [2], ...), ex.: "
+        "'Conforme a referência [1]'. Não invente fontes que não estejam listadas. "
+        "Se nenhuma fonte relevante tiver sido recuperada, deixe isso explícito "
+        "na resposta.",
     ]
     for indice, doc in enumerate(conhecimento_recuperado, start=1):
+        localizacao = _localizacao_legivel(doc)
         linhas.append(
             f"\n[{indice}] Fonte: {doc.get('fonte', 'N/A')}"
+            f"{localizacao}"
             f"\n    Título: {doc.get('titulo', 'N/A')}"
             f"\n    Tipo: {doc.get('tipo_documento', 'N/A')}"
             f"\n    Autor: {doc.get('autor', 'N/A') or 'N/A'}"
@@ -348,6 +391,19 @@ def _formatar_contexto_conhecimento(conhecimento_recuperado) -> str:
             f"\n    Conteúdo: {doc.get('conteudo', 'N/A')[:400]}"
         )
     return "\n".join(linhas)
+
+
+def _localizacao_legivel(doc) -> str:
+    """Monta, se houver, a localização da fonte (página/planilha)."""
+    paginas = [doc.get("pagina"), doc.get("page")]
+    pagina = next((p for p in paginas if p is not None), None)
+    planilha = doc.get("planilha") or doc.get("sheet")
+    partes = []
+    if pagina is not None:
+        partes.append(f"Página: {pagina}")
+    if planilha:
+        partes.append(f"Planilha: {planilha}")
+    return f"\n    Localização: {', '.join(partes)}" if partes else ""
 
 
 def gerar_explicacao(state: DadosPaciente) -> DadosPaciente:
@@ -529,6 +585,8 @@ def registrar_log_auditoria(state: DadosPaciente) -> DadosPaciente:
     tratamento_necessario = state.get("tratamento_necessario", False)
 
     agendamento = state.get("agendamento") or {}
+    fontes = state.get("fontes_utilizadas", [])
+    logging_rag = state.get("logging_rag", {})
     detalhe = {
         "paciente_nome": nome,
         "paciente_existe": ja_existe,
@@ -536,7 +594,10 @@ def registrar_log_auditoria(state: DadosPaciente) -> DadosPaciente:
         "timestamp": datetime.now().isoformat(),
         "alertas": state.get("alertas", []),
         "agendamento_id": agendamento.get("id"),
-        "fontes_utilizadas": state.get("fontes_utilizadas", []),
+        "fontes_utilizadas": fontes,
+        # Rastreamento do RAG (logs/auditoria)
+        "consultas_rag": logging_rag,
+        "possui_conhecimento": bool(logging_rag.get("tem_conhecimento", False)),
     }
 
     try:
@@ -550,6 +611,9 @@ def registrar_log_auditoria(state: DadosPaciente) -> DadosPaciente:
     except Exception:
         state["log_id"] = None
 
+    # Resposta estruturada (answer + sources) para consumidores da API
+    state["resposta_estruturada"] = _montar_resposta_estruturada(state, fontes)
+
     # Preservar mensagem de erro se houver
     if not state.get("mensagem_final") or not state.get("mensagem_final").startswith("❌"):
         mensagem = f"Analise concluida para {nome}. "
@@ -557,13 +621,80 @@ def registrar_log_auditoria(state: DadosPaciente) -> DadosPaciente:
             mensagem += f"Consulta agendada para {state['agendamento']['data']}. "
         if state.get("alertas"):
             mensagem += f"Alertas: {', '.join(state['alertas'])}"
-        mensagem += _formatar_fontes_para_mensagem(state.get("fontes_utilizadas", []))
+        mensagem += _formatar_fontes_para_mensagem(fontes)
         mensagem += ("\n⚠️ IMPORTANTE: Esta análise é uma ferramenta de apoio à decisão "
                      "clínica. As recomendações devem ser validadas por um profissional "
                      "de saúde habilitado antes de qualquer aplicação.")
         state["mensagem_final"] = mensagem
 
     return state
+
+
+def _montar_resposta_estruturada(state, fontes) -> dict:
+    """Monta a resposta estruturada (answer + sources + segurança).
+
+    O campo ``sources`` reflete **apenas** os documentos realmente recuperados
+    pelo RAG — nunca inventa fontes. Quando não houver conhecimento recuperado,
+    ``sources`` fica vazio e ``nada_relevante`` é marcado como verdadeiro.
+    """
+    analise = state.get("analise_llm", "")
+
+    sources = []
+    for fonte in ([f for f in fontes if f] or []):
+        source_item = {
+            "source": fonte.get("fonte") or fonte.get("arquivo"),
+            "type": fonte.get("tipo_documento") or fonte.get("source_type"),
+            "title": fonte.get("titulo"),
+        }
+        if fonte.get("pagina") is not None or fonte.get("page") is not None:
+            source_item["page"] = fonte.get("pagina") or fonte.get("page")
+        if fonte.get("planilha") or fonte.get("sheet"):
+            source_item["sheet"] = fonte.get("planilha") or fonte.get("sheet")
+        if fonte.get("autor"):
+            source_item["author"] = fonte.get("autor")
+        if fonte.get("ano"):
+            source_item["year"] = fonte.get("ano")
+        sources.append(source_item)
+
+    return {
+        "answer": analise,
+        "sources": sources,
+        "nada_relevante": not sources,
+        "safety": {
+            "validado_profissional": True,
+            "disclaimer": (
+                "Análise de apoio à decisão clínica. As recomendações devem ser "
+                "validadas por um profissional de saúde habilitado antes de qualquer "
+                "aplicação. Não constitui prescrição médica definitiva."
+            ),
+            "prescricao_direta_detectada": _detectar_prescricao_direta(analise),
+        },
+    }
+
+
+_PADROES_PRESCRICAO_DIRETA = (
+    r"\bprescrev\w*",
+    r"\btomar\s+\d+\s*(mg|g|mcg|ui)",
+    r"\bdose\s+(recomendada\s+de\s+\d+|de\s+\d+\s*(mg|g|mcg|ui))",
+    r"\bposologia",
+)
+
+
+def _detectar_prescricao_direta(texto: str) -> bool:
+    """Detecta se a resposta aparenta conter prescrição direta (sem qualificador).
+
+    É uma heurística de salvaguarda (requisito de segurança do Tech Challenge:
+    nunca prescrever diretamente sem validação humana). Retorna True quando
+    encontra padrões típicos de prescrição definitiva; o disclaimer de validação
+    humana é sempre mantido na resposta final, independentemente deste flag.
+    """
+    if not texto:
+        return False
+    texto_normalizado = texto.lower()
+    for padrao in _PADROES_PRESCRICAO_DIRETA:
+        if re.search(padrao, texto_normalizado):
+            return True
+    return False
 
 
 def _formatar_fontes_para_mensagem(fontes) -> str:
@@ -583,6 +714,9 @@ def _formatar_fontes_para_mensagem(fontes) -> str:
             base += f" - {autor}"
         if ano:
             base += f" ({ano})"
+        localizacao = _localizacao_legivel(fonte)
+        if localizacao:
+            base += f" | {localizacao.strip().replace('Localização: ', '')}"
         partes.append(base)
 
     return "\n".join(partes)

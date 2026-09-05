@@ -289,7 +289,8 @@ class TestExecutarRecuperarConhecimento:
     def test_sem_prontuarios_retorna_lista_vazia(self):
         resultado = asyncio.run(main._executar_recuperar_conhecimento([]))
 
-        assert resultado == {"conhecimento_recuperado": [], "fontes_utilizadas": []}
+        assert resultado["conhecimento_recuperado"] == []
+        assert resultado["fontes_utilizadas"] == []
 
     def test_prontuarios_sem_texto_util_retorna_vazio(self, monkeypatch):
         provedor_mock = MagicMock()
@@ -298,7 +299,9 @@ class TestExecutarRecuperarConhecimento:
 
         resultado = asyncio.run(main._executar_recuperar_conhecimento([{"queixa": "", "conduta": ""}]))
 
-        assert resultado == {"conhecimento_recuperado": [], "fontes_utilizadas": []}
+        assert resultado["conhecimento_recuperado"] == []
+        assert resultado["fontes_utilizadas"] == []
+        assert resultado["logging_rag"] == {}
         main.busca_repo.buscar_conhecimento.assert_not_called()
 
     def test_sucesso_retorna_conhecimento_e_fontes(self, monkeypatch):
@@ -310,6 +313,9 @@ class TestExecutarRecuperarConhecimento:
             titulo="Protocolo de Atendimento",
             autor="Departamento de Pneumologia",
             ano="2024",
+            pagina=3,
+            planilha=None,
+            arquivo="protocolo_respiratorio.pdf",
         )
         monkeypatch.setattr(main, "obter_provedor", MagicMock(return_value=MagicMock()))
         monkeypatch.setattr(
@@ -323,8 +329,13 @@ class TestExecutarRecuperarConhecimento:
         assert len(resultado["conhecimento_recuperado"]) == 1
         assert resultado["conhecimento_recuperado"][0]["fonte"] == "Protocolo Clínico - Doenças Respiratórias"
         assert resultado["conhecimento_recuperado"][0]["tipo_documento"] == "protocol"
+        assert resultado["conhecimento_recuperado"][0]["pagina"] == 3
         assert resultado["fontes_utilizadas"][0]["titulo"] == "Protocolo de Atendimento"
         assert resultado["fontes_utilizadas"][0]["autor"] == "Departamento de Pneumologia"
+        assert resultado["logging_rag"]["tem_conhecimento"] is True
+        assert resultado["logging_rag"]["docs_encontrados"] == 1
+        assert resultado["logging_rag"]["scores"] == [0.87]
+        assert resultado["logging_rag"]["consulta_rag"] == "Tosse Xarope"
 
     def test_excecao_retorna_lista_vazia(self, monkeypatch):
         monkeypatch.setattr(
@@ -335,7 +346,9 @@ class TestExecutarRecuperarConhecimento:
             main._executar_recuperar_conhecimento([{"queixa": "Tosse", "conduta": "Xarope"}])
         )
 
-        assert resultado == {"conhecimento_recuperado": [], "fontes_utilizadas": []}
+        assert resultado["conhecimento_recuperado"] == []
+        assert resultado["fontes_utilizadas"] == []
+        assert resultado["logging_rag"]["tem_conhecimento"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -829,3 +842,91 @@ class TestRegistrarLogAuditoria:
 
         entrada = mock_log.call_args.args[0]
         assert entrada.detalhe["fontes_utilizadas"] == fontes
+
+
+# ---------------------------------------------------------------------------
+# _montar_resposta_estruturada
+# ---------------------------------------------------------------------------
+
+def montar_fonte(tipo="protocol", **extra):
+    fonte = {
+        "fonte": "Protocolo.pdf",
+        "tipo_documento": tipo,
+        "titulo": "Protocolo de Atendimento",
+        "autor": "Depto. Pneumologia",
+        "ano": "2024",
+    }
+    fonte.update(extra)
+    return fonte
+
+
+class TestMontarRespostaEstruturada:
+    def test_sem_fontes_marca_nada_relevante(self, monkeypatch):
+        monkeypatch.setattr(main, "_detectar_prescricao_direta", lambda texto: False)
+
+        resposta = main._montar_resposta_estruturada({"analise_llm": "Sem conhecimento"}, [])
+
+        assert resposta["answer"] == "Sem conhecimento"
+        assert resposta["nada_relevante"] is True
+        assert resposta["sources"] == []
+        assert resposta["safety"]["prescricao_direta_detectada"] is False
+        assert resposta["safety"]["validado_profissional"] is True
+        assert "profissional de saúde habilitado" in resposta["safety"]["disclaimer"]
+
+    def test_com_fontes_mapeia_origem_e_localizacao(self):
+        fontes = [
+            montar_fonte(tipo="pdf", arquivo="protocolo.pdf", pagina=3, planilha=None),
+            montar_fonte(tipo="excel", arquivo="planilha.xlsx", pagina=None, planilha="Transtornos"),
+        ]
+
+        resposta = main._montar_resposta_estruturada({"analise_llm": "Análise"}, fontes)
+
+        assert resposta["nada_relevante"] is False
+        assert resposta["sources"][0]["source"] == "Protocolo.pdf"
+        assert resposta["sources"][0]["type"] == "pdf"
+        assert resposta["sources"][0]["page"] == 3
+        assert resposta["sources"][1]["type"] == "excel"
+        assert resposta["sources"][1]["sheet"] == "Transtornos"
+
+    def test_sources_nunca_inventam_fonte(self, monkeypatch):
+        monkeypatch.setattr(main, "_detectar_prescricao_direta", lambda texto: False)
+
+        resposta = main._montar_resposta_estruturada(
+            {"analise_llm": "Resposta sem recuperar nada"}, [None, None]
+        )
+
+        assert resposta["sources"] == []
+        assert resposta["nada_relevante"] is True
+
+
+# ---------------------------------------------------------------------------
+# _detectar_prescricao_direta (salvaguarda de segurança)
+# ---------------------------------------------------------------------------
+
+class TestDetectarPrescricaoDireta:
+    def test_texto_vazio_nao_detecta(self):
+        assert main._detectar_prescricao_direta("") is False
+        assert main._detectar_prescricao_direta("   ") is False
+
+    def test_nao_detecta_recomendacao_condicional(self):
+        texto = (
+            "Recomendo avaliar com o médico assistente a necessidade de "
+            "ajuste terapêutico, considerando o quadro clínico."
+        )
+        assert main._detectar_prescricao_direta(texto) is False
+
+    def test_detecta_verbo_prescrever(self):
+        assert main._detectar_prescricao_direta("Prescrevo amoxicilina 500mg por 7 dias.") is True
+        assert main._detectar_prescricao_direta("Vou prescrever um antibiótico.") is True
+
+    def test_detecta_dose_definitiva(self):
+        assert main._detectar_prescricao_direta("Tomar 10 mg de loratadina à noite.") is True
+        assert main._detectar_prescricao_direta("Dose recomendada de 50mg ao dia.") is True
+        assert main._detectar_prescricao_direta("A posologia deve ser seguida à risca.") is True
+
+    def test_resposta_segura_nao_detecta(self):
+        texto = (
+            "Paciente com quadro de rinite alérgica. Sugiro discussão do caso "
+            "com alergista para definir conduta personalizada."
+        )
+        assert main._detectar_prescricao_direta(texto) is False
