@@ -5,13 +5,18 @@ que a busca retorna metadata de fonte para rastreabilidade/explainability e
 que a ingestão de arquivos reais (PDF/Excel) funciona de forma idempotente.
 """
 
+import json
 from pathlib import Path
 
 import pytest
 
 from database.conhecimento.documentos_exemplo import obter_documentos_exemplo
 from database.conhecimento.ingestao_conhecimento import rodar_ingestao_conhecimento
-from database.conhecimento.loaders import carregar_diretorio
+from database.conhecimento.loaders import (
+    _sanitizar_conteudo,
+    carregar_diretorio,
+    carregar_metadados_externos,
+)
 from database.etl_seed import rodar_etl
 from src.db.buscar import BuscaRepositorio
 from src.db.connection import conectar
@@ -272,3 +277,126 @@ def test_dados_paciente_continuam_no_sql(db_conhecimento):
         atendimentos = con.execute("SELECT COUNT(*) AS t FROM atendimentos").fetchone()["t"]
     assert pacientes > 0
     assert atendimentos > 0
+
+
+# ---------------------------------------------------------------------------
+# Sanitização de conteúdo e metadados externos (catálogo metadados_fontes.json)
+# ---------------------------------------------------------------------------
+
+def test_sanitizacao_remove_caracteres_de_controle():
+    """Garante que NUL/DEL (0x00/0x7F) não chegam ao conteúdo dos chunks."""
+    assert _sanitizar_conteudo(None) == ""
+    assert _sanitizar_conteudo("normal") == "normal"
+    assert _sanitizar_conteudo("a\x00b\x00c") == "a b c"
+    assert _sanitizar_conteudo("a\x7fb") == "a b"
+    assert _sanitizar_conteudo("linha1\nlinha2\ttab\r") == "linha1\nlinha2\ttab\r"
+    assert _sanitizar_conteudo("çãé á") == "çãé á"  # acentos e espaço preservados
+
+
+def test_carregar_metadados_externos_valida_catalogo(tmp_path):
+    catalogo = tmp_path / "metadados_fontes.json"
+    catalogo.write_text(
+        json.dumps({
+            "versao": 1,
+            "fontes": {
+                "pcdt_ficticio.pdf": {
+                    "title": "Protocolo Fictício",
+                    "author": "Instituição X",
+                    "year": "2030",
+                    "document_type": "pcdt",
+                    "sintetico": True,
+                }
+            }
+        }),
+        encoding="utf-8",
+    )
+    metadados = carregar_metadados_externos(catalogo)
+    assert metadados["pcdt_ficticio.pdf"]["year"] == "2030"
+    assert carregar_metadados_externos(tmp_path / "inexistente.json") == {}
+
+
+def test_carregar_diretorio_aplica_metadados_externos(tmp_path):
+    """O título real, autor, instituição e sintético são aplicados ao chunk."""
+    pdf = tmp_path / "pcdt_ficticio.pdf"
+    _gerar_pdf(pdf, n_paragrafos=2)
+    catalogo = tmp_path / "metadados_fontes.json"
+    catalogo.write_text(
+        json.dumps({
+            "versao": 1,
+            "fontes": {
+                "pcdt_ficticio.pdf": {
+                    "title": "Protocolo Fictício da Especialidade",
+                    "author": "Ministério da Saúde / Conitec",
+                    "institution": "Ministério da Saúde (Conitec)",
+                    "year": "2030",
+                    "document_type": "pcdt",
+                    "license": "licença de teste",
+                    "url": "https://exemplo.test/fonte.pdf",
+                    "sintetico": False,
+                }
+            }
+        }),
+        encoding="utf-8",
+    )
+
+    docs = carregar_diretorio(str(tmp_path), metadata_externa=carregar_metadados_externos(catalogo))
+
+    assert docs
+    for doc in docs:
+        meta = doc.metadata
+        assert meta["document_title"].startswith("Protocolo Fictício da Especialidade - p.")
+        assert meta["document_title"].endswith(tuple(f" - p.{i}" for i in range(1, 4)))
+        assert meta["author"] == "Ministério da Saúde / Conitec"
+        assert meta["institution"] == "Ministério da Saúde (Conitec)"
+        assert meta["year"] == "2030"
+        assert meta["document_type"] == "pcdt"
+        assert meta["sintetico"] is False
+        assert meta["source_type"] == "pdf"
+        assert meta["page"] in (1, 2, 3)
+
+
+def test_ingestao_persiste_metadados_externos_no_banco(db_conhecimento, tmp_path):
+    """O catálogo metadados_fontes.json é resolvido e persistido via ingestão."""
+    pdf = tmp_path / "pcdt_ficticio.pdf"
+    _gerar_pdf(pdf, n_paragrafos=2)
+    tmp_path.joinpath("metadados_fontes.json").write_text(
+        json.dumps({
+            "versao": 1,
+            "fontes": {
+                "pcdt_ficticio.pdf": {
+                    "title": "Protocolo Fictício da Especialidade",
+                    "author": "Instituição X",
+                    "institution": "Instituição X",
+                    "year": "2030",
+                    "document_type": "pcdt",
+                    "sintetico": True,
+                }
+            }
+        }),
+        encoding="utf-8",
+    )
+
+    resumo = rodar_ingestao_conhecimento(
+        provedor_nome="mock", dsn=db_conhecimento, knowledge_dir=str(tmp_path)
+    )
+    assert resumo["chunks_novos"] > 0
+
+    with conectar(db_conhecimento) as con:
+        linha = con.execute(
+            """
+            SELECT e.cmetadata
+            FROM langchain_pg_embedding e
+            JOIN langchain_pg_collection c ON c.uuid = e.collection_id
+            WHERE c.name LIKE 'assistente_medico_conhecimento_%'
+              AND e.cmetadata->>'source' = 'pcdt_ficticio.pdf'
+            LIMIT 1
+            """
+        ).fetchone()
+    assert linha is not None
+    meta = linha["cmetadata"]
+    assert meta["author"] == "Instituição X"
+    assert meta["institution"] == "Instituição X"
+    assert meta["year"] == "2030"
+    assert meta["document_type"] == "pcdt"
+    assert meta["sintetico"] is True
+    assert meta["document_title"].startswith("Protocolo Fictício da Especialidade - p.")

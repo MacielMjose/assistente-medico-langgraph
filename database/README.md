@@ -144,15 +144,34 @@ diretamente do banco relacional. O que alimenta a busca vetorial para enriquecer
 resposta da LLM é a **coleção de conhecimento contextual**, separada por coleção
 (`assistente_medico_conhecimento_<modelo>`).
 
-### Ingerir documentos de conhecimento (demonstração)
+### Corpus documental
 
-Documentos de exemplo (protocolos, casos de estudo, diretrizes, referências) estão
-em `database/conhecimento/documentos_exemplo.py` e são identificados como dados de
-demonstração — não são publicações reais.
+O corpus é **"real ou mock de um real"**: PCDTs/manuais do Ministério da Saúde/
+Conitec (baixados de fontes oficiais) complementados por conteúdo didático
+sintético com `sintetico: true`. Mais detalhes e relatório de rastreabilidade em
+`knowledge/RELATORIO_CORPUS.md` (catálogo: `knowledge/metadados_fontes.json`).
+
+```bash
+# Download das fontes reais (17 PCDTs/manuais) + geração do corpus sintético
+python database/conhecimento/baixar_fontes_reais.py
+python database/conhecimento/gerar_dataset_conhecimento.py
+
+# Ingestão do corpus no vector store (idempotente)
+python database/conhecimento/ingestao_conhecimento.py --provider mock --knowledge-dir knowledge
+python database/conhecimento/ingestao_conhecimento.py --provider openai --knowledge-dir knowledge --reset-colecao
+
+# Relatório do corpus
+python database/conhecimento/gerar_relatorio_corpus.py --provider mock
+```
+
+### Material de demonstração (legado/compatibilidade)
+
+Documentos de exemplo embutidos (protocolos, casos de estudo, diretrizes,
+referências) estão em `database/conhecimento/documentos_exemplo.py` e são
+identificados como dados de demonstração — não são publicações reais.
 
 ```bash
 python database/conhecimento/ingestao_conhecimento.py --provider mock
-python database/conhecimento/ingestao_conhecimento.py --provider openai --reset-colecao
 ```
 
 ### Metadata de fonte
@@ -161,20 +180,26 @@ Cada documento de conhecimento carrega metadata de rastreabilidade:
 
 | Campo            | Exemplo                                         |
 |------------------|-------------------------------------------------|
-| `source`         | "Protocolo Clínico - Condições Respiratórias"   |
-| `document_type`  | `protocol` / `case_study` / `guideline` / `reference` |
-| `title`          | "Protocolo de Atendimento - Doenças Respiratórias" |
-| `author`         | "Departamento de Pneumologia"                   |
-| `year`           | "2024"                                          |
+| `source`         | "pcdt_hipertensao_2025.pdf"                     |
+| `source_type`    | `pdf` / `excel`                                 |
+| `document_title` | "Protocolo ... da Hipertensão Arterial Sistêmica - p.3" |
+| `document_type`  | `pcdt` / `manual` / `guia_prescricao` / ...     |
+| `author`         | "Ministério da Saúde / Conitec"                 |
+| `institution`    | "Ministério da Saúde (Conitec)"                 |
+| `year`           | "2025"                                          |
+| `sintetico`      | `false` (fonte real) / `true` (mock didático)   |
 
-Essa metadata permite que a resposta final da LLM exiba **"Fontes consultadas"**,
-cada uma rastreável até o documento recuperado pelo vector store.
+Para fontes catalogadas, o loader (`database/conhecimento/loaders.py`) enriquece
+os chunk com esses campos a partir de `knowledge/metadados_fontes.json`. Essa
+metadata permite que a resposta final da LLM exiba **"Fontes consultadas"**, cada
+uma rastreável até a publicação original (título, página, link).
 
 ### Testes
 
-`tests/test_conhecimento.py` valida ingestão, separação de coleções e retorno de
-fontes. Os testes de busca por atendimentos (`tests/test_embeddings.py`) permanecem
-válidos para a coleção legada.
+`tests/test_conhecimento.py` valida ingestão, separação de coleções, retorno de
+fontes, sanitização de conteúdo e aplicação dos metadados externos (catálogo). Os
+testes de busca por atendimentos (`tests/test_embeddings.py`) permanecem válidos
+para a coleção legada.
 
 ## Validar a base gerada
 

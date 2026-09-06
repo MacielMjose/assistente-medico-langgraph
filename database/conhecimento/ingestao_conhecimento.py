@@ -51,6 +51,7 @@ from src.db.vectorstore import (
 from database.conhecimento.documentos_exemplo import obter_documentos_exemplo
 from database.conhecimento.loaders import (
     carregar_diretorio,
+    carregar_metadados_externos,
     gerar_chunk_id,
 )
 
@@ -81,11 +82,27 @@ def _ids_existentes(dsn: str, colecao: str, ids: list[str]) -> set[str]:
     return existentes
 
 
+def _localizar_metadados(knowledge_dir: Path) -> dict[str, dict]:
+    """Localiza e carrega o catálogo de metadados externos do corpus.
+
+    Procura por ``metadados_fontes.json`` a partir do diretório de
+    conhecimento e em seus ancestrais (o catálogo fica em ``knowledge/``
+    enquanto os PDFs podem estar em ``knowledge/pdf/``).
+    """
+    for candidato in [knowledge_dir, *knowledge_dir.parents]:
+        arquivo = candidato / "metadados_fontes.json"
+        if arquivo.is_file():
+            return carregar_metadados_externos(arquivo)
+    return {}
+
+
 def _carregar_documentos_fonte(knowledge_dir: str | None) -> list[Document]:
     """Carrega os documentos-fonte a ingerir.
 
     - Se ``knowledge_dir`` for informado, carrega os arquivos reais (PDF/Excel)
-      do diretório via LangChain Document Loaders.
+      do diretório via LangChain Document Loaders, aplicando os metadados
+      externos (autor/instituição/ano/licença) catalogados para as fontes do
+      corpus quando disponíveis.
     - Caso contrário, retorna os documentos de exemplo embutidos (compatibilidade).
 
     Em ambos os casos retorna documentos já carregados (na forma de Document).
@@ -96,7 +113,13 @@ def _carregar_documentos_fonte(knowledge_dir: str | None) -> list[Document]:
             raise ValueError(
                 f"Diretório de conhecimento não encontrado: {knowledge_dir}"
             )
-        docs = carregar_diretorio(diretorio)
+        metadados = _localizar_metadados(diretorio)
+        if metadados:
+            print(
+                f"[conhecimento] catálogo de metadados externos: "
+                f"{len(metadados)} fontes."
+            )
+        docs = carregar_diretorio(diretorio, metadata_externa=metadados)
         if not docs:
             print(
                 f"[conhecimento] nenhum documento suportado encontrado em "
