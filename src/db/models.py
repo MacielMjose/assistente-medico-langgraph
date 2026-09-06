@@ -79,6 +79,20 @@ class ResultadoVetorial(BaseModel):
     data_atendimento: datetime
 
 
+class ResultadoConhecimento(BaseModel):
+    conteudo: str
+    similaridade: float
+    fonte: str
+    tipo_documento: str
+    titulo: str
+    autor: str | None = None
+    ano: str | None = None
+    pagina: int | None = None
+    planilha: str | None = None
+    arquivo: str | None = None
+    metadata_completa: dict = Field(default_factory=dict)
+
+
 class EntradaLog(BaseModel):
     sessao_id: str
     acao: str

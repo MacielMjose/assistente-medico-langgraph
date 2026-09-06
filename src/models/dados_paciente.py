@@ -23,3 +23,7 @@ class DadosPaciente(TypedDict, total=False):
     log_id: Optional[Any]
     documentos_similares: Optional[list[dict]]
     erro_busca: Optional[str]
+    conhecimento_recuperado: Optional[list[dict]]
+    fontes_utilizadas: Optional[list[dict]]
+    logging_rag: Optional[dict]
+    resposta_estruturada: Optional[dict]

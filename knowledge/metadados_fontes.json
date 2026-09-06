@@ -1,0 +1,625 @@
+{
+  "versao": 1,
+  "gerado_em": "2026-09-06T00:48:27+00:00",
+  "fontes": {
+    "guia_prescricao_cardiologia.pdf": {
+      "title": "Guia de Prescrição em Cardiologia",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "guia_prescricao",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "guia_prescricao_dermatologia.pdf": {
+      "title": "Guia de Prescrição em Dermatologia",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "guia_prescricao",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "guia_prescricao_endocrinologia.pdf": {
+      "title": "Guia de Prescrição em Endocrinologia",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "guia_prescricao",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "guia_prescricao_gastroenterologia.pdf": {
+      "title": "Guia de Prescrição em Gastroenterologia",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "guia_prescricao",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "guia_prescricao_geriatria.pdf": {
+      "title": "Guia de Prescrição em Geriatria",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "guia_prescricao",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "guia_prescricao_infectologia.pdf": {
+      "title": "Guia de Prescrição em Infectologia",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "guia_prescricao",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "guia_prescricao_nefrologia.pdf": {
+      "title": "Guia de Prescrição em Nefrologia",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "guia_prescricao",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "guia_prescricao_neurologia.pdf": {
+      "title": "Guia de Prescrição em Neurologia (Acidente Vascular Encefálico e Cefaleias)",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "guia_prescricao",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "guia_prescricao_obstetricia.pdf": {
+      "title": "Guia de Prescrição em Obstetrícia",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "guia_prescricao",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "guia_prescricao_pediatria.pdf": {
+      "title": "Guia de Prescrição em Pediatria",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "guia_prescricao",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "guia_prescricao_psiquiatria.pdf": {
+      "title": "Guia de Prescrição em Psiquiatria",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "guia_prescricao",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "guia_prescricao_reumatologia.pdf": {
+      "title": "Guia de Prescrição em Reumatologia",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "guia_prescricao",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "livro_pcdt_volume_iii_2014.pdf": {
+      "title": "Protocolos Clínicos e Diretrizes Terapêuticas do Ministério da Saúde (Volume III)",
+      "author": "Ministério da Saúde / Conitec",
+      "institution": "Ministério da Saúde (Conitec)",
+      "year": "2014",
+      "document_type": "livro_pcdt",
+      "license": "É permitida a reprodução parcial ou total desta obra, desde que citada a fonte e que não seja para venda ou qualquer fim comercial (Ministério da Saúde).",
+      "url": "http://antigo-conitec.saude.gov.br/images/Protocolos/Livros/LivroPCDT_VolumeIII.pdf",
+      "sintetico": false,
+      "baixado": true
+    },
+    "manual_condutas_cardiologia.pdf": {
+      "title": "Manual de Condutas em Cardiologia",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "manual_didatico",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "manual_condutas_dermatologia.pdf": {
+      "title": "Manual de Condutas em Dermatologia",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "manual_didatico",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "manual_condutas_endocrinologia.pdf": {
+      "title": "Manual de Condutas em Endocrinologia",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "manual_didatico",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "manual_condutas_gastroenterologia.pdf": {
+      "title": "Manual de Condutas em Gastroenterologia",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "manual_didatico",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "manual_condutas_geriatria.pdf": {
+      "title": "Manual de Condutas em Geriatria",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "manual_didatico",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "manual_condutas_infectologia.pdf": {
+      "title": "Manual de Condutas em Infectologia",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "manual_didatico",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "manual_condutas_nefrologia.pdf": {
+      "title": "Manual de Condutas em Nefrologia",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "manual_didatico",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "manual_condutas_neurologia.pdf": {
+      "title": "Manual de Condutas em Neurologia (Acidente Vascular Encefálico e Cefaleias)",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "manual_didatico",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "manual_condutas_obstetricia.pdf": {
+      "title": "Manual de Condutas em Obstetrícia",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "manual_didatico",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "manual_condutas_pediatria.pdf": {
+      "title": "Manual de Condutas em Pediatria",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "manual_didatico",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "manual_condutas_psiquiatria.pdf": {
+      "title": "Manual de Condutas em Psiquiatria",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "manual_didatico",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "manual_condutas_reumatologia.pdf": {
+      "title": "Manual de Condutas em Reumatologia",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "manual_didatico",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "manual_instrutivo_rue.pdf": {
+      "title": "Manual Instrutivo da Rede de Atenção às Urgências e Emergências no SUS",
+      "author": "Ministério da Saúde",
+      "institution": "Ministério da Saúde (protocolo aprovado)",
+      "year": "2013",
+      "document_type": "manual",
+      "license": "É permitida a reprodução parcial ou total desta obra, desde que citada a fonte e que não seja para venda ou qualquer fim comercial (Ministério da Saúde).",
+      "url": "https://biblioteca.cofen.gov.br/wp-content/uploads/2024/07/manual-instrutivo-rede-atencao-urgencias-emergencias-sistema-unico-saude.pdf",
+      "sintetico": false,
+      "baixado": true
+    },
+    "pcdt_artrite_reumatoide.pdf": {
+      "title": "Protocolo Clínico e Diretrizes Terapêuticas da Artrite Reumatoide",
+      "author": "Ministério da Saúde / Conitec",
+      "institution": "Ministério da Saúde (Conitec)",
+      "year": "2021",
+      "document_type": "pcdt",
+      "license": "É permitida a reprodução parcial ou total desta obra, desde que citada a fonte e que não seja para venda ou qualquer fim comercial (Ministério da Saúde).",
+      "url": "https://www.gov.br/conitec/pt-br/midias/protocolos/pcdt-da-artrite-reumatoide/@@display-file/file",
+      "sintetico": false,
+      "baixado": true
+    },
+    "pcdt_asma_2021.pdf": {
+      "title": "Protocolo Clínico e Diretrizes Terapêuticas da Asma",
+      "author": "Ministério da Saúde / Conitec",
+      "institution": "Ministério da Saúde (Conitec)",
+      "year": "2021",
+      "document_type": "pcdt",
+      "license": "É permitida a reprodução parcial ou total desta obra, desde que citada a fonte e que não seja para venda ou qualquer fim comercial (Ministério da Saúde).",
+      "url": "https://www.gov.br/conitec/pt-br/midias/protocolos/20210830_pcdt_asma_pt14.pdf/@@display-file/file",
+      "sintetico": false,
+      "baixado": true
+    },
+    "pcdt_diabete_melito_tipo1_resumido.pdf": {
+      "title": "Protocolo Clínico e Diretrizes Terapêuticas do Diabete Melito Tipo 1 (versão resumida)",
+      "author": "Ministério da Saúde / Conitec",
+      "institution": "Ministério da Saúde (Conitec)",
+      "year": "2019",
+      "document_type": "pcdt",
+      "license": "É permitida a reprodução parcial ou total desta obra, desde que citada a fonte e que não seja para venda ou qualquer fim comercial (Ministério da Saúde).",
+      "url": "https://www.gov.br/conitec/pt-br/midias/protocolos/resumidos/pcdt_resumido_diabetesmellitus_tipo1.pdf/@@display-file/file",
+      "sintetico": false,
+      "baixado": true
+    },
+    "pcdt_diabete_melito_tipo2_2026.pdf": {
+      "title": "Protocolo Clínico e Diretrizes Terapêuticas do Diabete Melito Tipo 2",
+      "author": "Ministério da Saúde / Conitec",
+      "institution": "Ministério da Saúde (Conitec)",
+      "year": "2026",
+      "document_type": "pcdt",
+      "license": "É permitida a reprodução parcial ou total desta obra, desde que citada a fonte e que não seja para venda ou qualquer fim comercial (Ministério da Saúde).",
+      "url": "https://www.gov.br/conitec/pt-br/midias/protocolos/2026/pcdt-diabete-melito-tipo-2/@@display-file/file",
+      "sintetico": false,
+      "baixado": true
+    },
+    "pcdt_dpoc_2021.pdf": {
+      "title": "Protocolo Clínico e Diretrizes Terapêuticas da Doença Pulmonar Obstrutiva Crônica (Relatório de Recomendação nº 651)",
+      "author": "Ministério da Saúde / Conitec",
+      "institution": "Ministério da Saúde (Conitec)",
+      "year": "2021",
+      "document_type": "pcdt",
+      "license": "É permitida a reprodução parcial ou total desta obra, desde que citada a fonte e que não seja para venda ou qualquer fim comercial (Ministério da Saúde).",
+      "url": "https://www.gov.br/conitec/pt-br/midias/relatorios/2021/20211123_relatorio_dpoc_651.pdf/@@display-file/file",
+      "sintetico": false,
+      "baixado": true
+    },
+    "pcdt_epilepsia.pdf": {
+      "title": "Protocolo Clínico e Diretrizes Terapêuticas da Epilepsia",
+      "author": "Ministério da Saúde / Conitec",
+      "institution": "Ministério da Saúde (Conitec)",
+      "year": "2019",
+      "document_type": "pcdt",
+      "license": "É permitida a reprodução parcial ou total desta obra, desde que citada a fonte e que não seja para venda ou qualquer fim comercial (Ministério da Saúde).",
+      "url": "https://www.gov.br/conitec/pt-br/midias/protocolos/pcdt_epilepsia.pdf/@@display-file/file",
+      "sintetico": false,
+      "baixado": true
+    },
+    "pcdt_esclerose_multipla_2024.pdf": {
+      "title": "Protocolo Clínico e Diretrizes Terapêuticas da Esclerose Múltipla",
+      "author": "Ministério da Saúde / Conitec",
+      "institution": "Ministério da Saúde (Conitec)",
+      "year": "2024",
+      "document_type": "pcdt",
+      "license": "É permitida a reprodução parcial ou total desta obra, desde que citada a fonte e que não seja para venda ou qualquer fim comercial (Ministério da Saúde).",
+      "url": "https://saude.rs.gov.br/upload/arquivos/202410/01155947-pcdt-de-esclerose-multipla-2024.pdf",
+      "sintetico": false,
+      "baixado": true
+    },
+    "pcdt_glaucoma_resumido.pdf": {
+      "title": "Protocolo Clínico e Diretrizes Terapêuticas do Glaucoma (versão resumida)",
+      "author": "Ministério da Saúde / Conitec",
+      "institution": "Ministério da Saúde (Conitec)",
+      "year": "2020",
+      "document_type": "pcdt",
+      "license": "É permitida a reprodução parcial ou total desta obra, desde que citada a fonte e que não seja para venda ou qualquer fim comercial (Ministério da Saúde).",
+      "url": "https://www.gov.br/conitec/pt-br/midias/protocolos/resumidos/PCDTResumidoGlaucomafinal.pdf/@@display-file/file",
+      "sintetico": false,
+      "baixado": true
+    },
+    "pcdt_hepatite_b_2016.pdf": {
+      "title": "Relatório de Recomendação PCDT Hepatite B e Coinfecções",
+      "author": "Ministério da Saúde / Conitec",
+      "institution": "Ministério da Saúde (Conitec)",
+      "year": "2016",
+      "document_type": "relatorio_pcdt",
+      "license": "É permitida a reprodução parcial ou total desta obra, desde que citada a fonte e que não seja para venda ou qualquer fim comercial (Ministério da Saúde).",
+      "url": "https://www.gov.br/conitec/pt-br/midias/relatorios/2016/relatorio_pcdt_hepatitebcoinfeccoes_final.pdf/@@display-file/file",
+      "sintetico": false,
+      "baixado": true
+    },
+    "pcdt_hipertensao_2025.pdf": {
+      "title": "Protocolo Clínico e Diretrizes Terapêuticas da Hipertensão Arterial Sistêmica",
+      "author": "Ministério da Saúde / Conitec",
+      "institution": "Ministério da Saúde (Conitec)",
+      "year": "2025",
+      "document_type": "pcdt",
+      "license": "É permitida a reprodução parcial ou total desta obra, desde que citada a fonte e que não seja para venda ou qualquer fim comercial (Ministério da Saúde).",
+      "url": "https://www.gov.br/conitec/pt-br/midias/protocolos/pcdt-hipertensao-arterial-sistemica.pdf/@@display-file/file",
+      "sintetico": false,
+      "baixado": true
+    },
+    "pcdt_hiv_modulo2_2024.pdf": {
+      "title": "Protocolo Clínico e Diretrizes Terapêuticas para Manejo da Infecção pelo HIV (Módulo 2)",
+      "author": "Ministério da Saúde / DATHI",
+      "institution": "Ministério da Saúde (Departamento de HIV/Aids)",
+      "year": "2024",
+      "document_type": "pcdt",
+      "license": "É permitida a reprodução parcial ou total desta obra, desde que citada a fonte e que não seja para venda ou qualquer fim comercial (Ministério da Saúde).",
+      "url": "http://www.gov.br/aids/pt-br/central-de-conteudo/pcdts/PCDT_HIV_Modulo_2_2024_eletrnicoISBN.pdf/@@display-file/file",
+      "sintetico": false,
+      "baixado": true
+    },
+    "pcdt_parkinson.pdf": {
+      "title": "Protocolo Clínico e Diretrizes Terapêuticas da Doença de Parkinson",
+      "author": "Ministério da Saúde / Conitec",
+      "institution": "Ministério da Saúde (Conitec)",
+      "year": "2022",
+      "document_type": "pcdt",
+      "license": "É permitida a reprodução parcial ou total desta obra, desde que citada a fonte e que não seja para venda ou qualquer fim comercial (Ministério da Saúde).",
+      "url": "https://www.gov.br/conitec/pt-br/midias/protocolos/pcdt-doenca-de-parkinson/@@display-file/file",
+      "sintetico": false,
+      "baixado": true
+    },
+    "pcdt_sobrepeso_obesidade_2020.pdf": {
+      "title": "Protocolo Clínico e Diretrizes Terapêuticas de Sobrepeso e Obesidade em Adultos",
+      "author": "Ministério da Saúde / Conitec",
+      "institution": "Ministério da Saúde (Conitec)",
+      "year": "2020",
+      "document_type": "pcdt",
+      "license": "É permitida a reprodução parcial ou total desta obra, desde que citada a fonte e que não seja para venda ou qualquer fim comercial (Ministério da Saúde).",
+      "url": "https://www.gov.br/conitec/pt-br/midias/protocolos/20201113_pcdt_sobrepeso_e_obesidade_em_adultos_29_10_2020_final.pdf/@@display-file/file",
+      "sintetico": false,
+      "baixado": true
+    },
+    "politica_nacional_atencao_urgencias_3ed.pdf": {
+      "title": "Política Nacional de Atenção às Urgências (3ª edição)",
+      "author": "Ministério da Saúde",
+      "institution": "Ministério da Saúde (BVS-MS)",
+      "year": "2006",
+      "document_type": "manual",
+      "license": "É permitida a reprodução parcial ou total desta obra, desde que citada a fonte e que não seja para venda ou qualquer fim comercial (Ministério da Saúde).",
+      "url": "https://www.ribeiraopreto.sp.gov.br/files/ssaude/pdf/ap-politica-nacional-atencaourgencias-manual.pdf",
+      "sintetico": false,
+      "baixado": true
+    },
+    "posologia_cardiologia.xlsx": {
+      "title": "Tabelas de Posologia - Cardiologia",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "tabela_posologia",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "posologia_dermatologia.xlsx": {
+      "title": "Tabelas de Posologia - Dermatologia",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "tabela_posologia",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "posologia_endocrinologia.xlsx": {
+      "title": "Tabelas de Posologia - Endocrinologia",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "tabela_posologia",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "posologia_gastroenterologia.xlsx": {
+      "title": "Tabelas de Posologia - Gastroenterologia",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "tabela_posologia",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "posologia_geriatria.xlsx": {
+      "title": "Tabelas de Posologia - Geriatria",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "tabela_posologia",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "posologia_infectologia.xlsx": {
+      "title": "Tabelas de Posologia - Infectologia",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "tabela_posologia",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "posologia_nefrologia.xlsx": {
+      "title": "Tabelas de Posologia - Nefrologia",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "tabela_posologia",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "posologia_neurologia.xlsx": {
+      "title": "Tabelas de Posologia - Neurologia (Acidente Vascular Encefálico e Cefaleias)",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "tabela_posologia",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "posologia_obstetricia.xlsx": {
+      "title": "Tabelas de Posologia - Obstetrícia",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "tabela_posologia",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "posologia_pediatria.xlsx": {
+      "title": "Tabelas de Posologia - Pediatria",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "tabela_posologia",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "posologia_psiquiatria.xlsx": {
+      "title": "Tabelas de Posologia - Psiquiatria",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "tabela_posologia",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "posologia_reumatologia.xlsx": {
+      "title": "Tabelas de Posologia - Reumatologia",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "tabela_posologia",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "protocolo_atendimento_cardiologia.pdf": {
+      "title": "Protocolo de Atendimento em Cardiologia",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "protocolo_didatico",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "protocolo_atendimento_dermatologia.pdf": {
+      "title": "Protocolo de Atendimento em Dermatologia",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "protocolo_didatico",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "protocolo_atendimento_endocrinologia.pdf": {
+      "title": "Protocolo de Atendimento em Endocrinologia",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "protocolo_didatico",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "protocolo_atendimento_gastroenterologia.pdf": {
+      "title": "Protocolo de Atendimento em Gastroenterologia",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "protocolo_didatico",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "protocolo_atendimento_geriatria.pdf": {
+      "title": "Protocolo de Atendimento em Geriatria",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "protocolo_didatico",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "protocolo_atendimento_infectologia.pdf": {
+      "title": "Protocolo de Atendimento em Infectologia",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "protocolo_didatico",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "protocolo_atendimento_nefrologia.pdf": {
+      "title": "Protocolo de Atendimento em Nefrologia",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "protocolo_didatico",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "protocolo_atendimento_neurologia.pdf": {
+      "title": "Protocolo de Atendimento em Neurologia (Acidente Vascular Encefálico e Cefaleias)",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "protocolo_didatico",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "protocolo_atendimento_obstetricia.pdf": {
+      "title": "Protocolo de Atendimento em Obstetrícia",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "protocolo_didatico",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "protocolo_atendimento_pediatria.pdf": {
+      "title": "Protocolo de Atendimento em Pediatria",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "protocolo_didatico",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "protocolo_atendimento_psiquiatria.pdf": {
+      "title": "Protocolo de Atendimento em Psiquiatria",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "protocolo_didatico",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "protocolo_atendimento_reumatologia.pdf": {
+      "title": "Protocolo de Atendimento em Reumatologia",
+      "author": "Equipe Didática (Assistente Médico)",
+      "institution": "Material didático sintético",
+      "year": "2024",
+      "document_type": "protocolo_didatico",
+      "license": "Material didático sintético de demonstração. Conteúdo plausível, porém não oficial; não deve ser usado como base para decisões clínicas.",
+      "sintetico": true
+    },
+    "regulacao_medica_urgencias.pdf": {
+      "title": "Regulação Médica das Urgências (Ministério da Saúde)",
+      "author": "Ministério da Saúde",
+      "institution": "Ministério da Saúde (BVS-MS)",
+      "year": "2014",
+      "document_type": "manual",
+      "license": "É permitida a reprodução parcial ou total desta obra, desde que citada a fonte e que não seja para venda ou qualquer fim comercial (Ministério da Saúde).",
+      "url": "https://www.gov.br/saude/pt-br/composicao/saes/samu-192/publicacoes/regulacao_medica_urgencias.pdf/@@display-file/file",
+      "sintetico": false,
+      "baixado": true
+    }
+  }
+}

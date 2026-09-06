@@ -129,9 +129,77 @@ busca = BuscaRepositorio()
 # busca textual (full-text em português)
 busca.buscar_texto("dor lombar", condicao="Hérnia Inguinal", limite=5)
 
-# busca semântica (LangChain/PGVector)
+# busca semântica (LangChain/PGVector) — coleção de atendimentos
 busca.buscar_vetorial("dor lombar ao levantar peso", obter_provedor("mock"), k=5)
+
+# busca semântica (LangChain/PGVector) — coleção de conhecimento contextual
+busca.buscar_conhecimento("paciente com asma e falta de ar", obter_provedor("mock"), k=5)
 ```
+
+## Conhecimento contextual (RAG para explainability)
+
+O pipeline RAG **não** trata a coleção de atendimentos como conhecimento para a LLM.
+Os dados estruturados (pacientes, atendimentos, condutas) continuam sendo obtidos
+diretamente do banco relacional. O que alimenta a busca vetorial para enriquecer a
+resposta da LLM é a **coleção de conhecimento contextual**, separada por coleção
+(`assistente_medico_conhecimento_<modelo>`).
+
+### Corpus documental
+
+O corpus é **"real ou mock de um real"**: PCDTs/manuais do Ministério da Saúde/
+Conitec (baixados de fontes oficiais) complementados por conteúdo didático
+sintético com `sintetico: true`. Mais detalhes e relatório de rastreabilidade em
+`knowledge/RELATORIO_CORPUS.md` (catálogo: `knowledge/metadados_fontes.json`).
+
+```bash
+# Download das fontes reais (17 PCDTs/manuais) + geração do corpus sintético
+python database/conhecimento/baixar_fontes_reais.py
+python database/conhecimento/gerar_dataset_conhecimento.py
+
+# Ingestão do corpus no vector store (idempotente)
+python database/conhecimento/ingestao_conhecimento.py --provider mock --knowledge-dir knowledge
+python database/conhecimento/ingestao_conhecimento.py --provider openai --knowledge-dir knowledge --reset-colecao
+
+# Relatório do corpus
+python database/conhecimento/gerar_relatorio_corpus.py --provider mock
+```
+
+### Material de demonstração (legado/compatibilidade)
+
+Documentos de exemplo embutidos (protocolos, casos de estudo, diretrizes,
+referências) estão em `database/conhecimento/documentos_exemplo.py` e são
+identificados como dados de demonstração — não são publicações reais.
+
+```bash
+python database/conhecimento/ingestao_conhecimento.py --provider mock
+```
+
+### Metadata de fonte
+
+Cada documento de conhecimento carrega metadata de rastreabilidade:
+
+| Campo            | Exemplo                                         |
+|------------------|-------------------------------------------------|
+| `source`         | "pcdt_hipertensao_2025.pdf"                     |
+| `source_type`    | `pdf` / `excel`                                 |
+| `document_title` | "Protocolo ... da Hipertensão Arterial Sistêmica - p.3" |
+| `document_type`  | `pcdt` / `manual` / `guia_prescricao` / ...     |
+| `author`         | "Ministério da Saúde / Conitec"                 |
+| `institution`    | "Ministério da Saúde (Conitec)"                 |
+| `year`           | "2025"                                          |
+| `sintetico`      | `false` (fonte real) / `true` (mock didático)   |
+
+Para fontes catalogadas, o loader (`database/conhecimento/loaders.py`) enriquece
+os chunk com esses campos a partir de `knowledge/metadados_fontes.json`. Essa
+metadata permite que a resposta final da LLM exiba **"Fontes consultadas"**, cada
+uma rastreável até a publicação original (título, página, link).
+
+### Testes
+
+`tests/test_conhecimento.py` valida ingestão, separação de coleções, retorno de
+fontes, sanitização de conteúdo e aplicação dos metadados externos (catálogo). Os
+testes de busca por atendimentos (`tests/test_embeddings.py`) permanecem válidos
+para a coleção legada.
 
 ## Validar a base gerada
 

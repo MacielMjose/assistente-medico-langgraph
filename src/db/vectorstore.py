@@ -27,6 +27,7 @@ from src.db.connection import resolver_dsn
 from src.db.embeddings import nome_modelo_do, obter_provedor
 
 COLECAO_BASE = "assistente_medico"
+COLECAO_CONHECIMENTO = "assistente_medico_conhecimento"
 
 
 def _dsn_sqlalchemy(dsn: str) -> str:
@@ -38,6 +39,10 @@ def _dsn_sqlalchemy(dsn: str) -> str:
 def colecao_para(provedor: Embeddings, nome_colecao: str = COLECAO_BASE) -> str:
     modelo = re.sub(r"[^a-zA-Z0-9_-]", "_", nome_modelo_do(provedor))
     return f"{nome_colecao}_{modelo}"
+
+
+def colecao_conhecimento_para(provedor: Embeddings) -> str:
+    return colecao_para(provedor, COLECAO_CONHECIMENTO)
 
 
 def obter_vectorstore(
@@ -62,6 +67,23 @@ def obter_vectorstore(
         collection_name=colecao_para(provedor, nome_colecao),
         distance_strategy="cosine",
         use_jsonb=True,
+    )
+
+
+def obter_vectorstore_conhecimento(
+    provedor: Embeddings | None = None,
+    dsn: str | None = None,
+) -> PGVectorLangChain:
+    """Retorna um PGVector para a coleção de conhecimento contextual.
+
+    A coleção de conhecimento é separada da coleção de atendimentos para
+    manter a distinção entre dados estruturados vetORIZADOS e documentos
+    de conhecimento que enriquecem as respostas da LLM.
+    """
+    return obter_vectorstore(
+        provedor=provedor,
+        dsn=dsn,
+        nome_colecao=COLECAO_CONHECIMENTO,
     )
 
 
