@@ -27,3 +27,7 @@ class DadosPaciente(TypedDict, total=False):
     fontes_utilizadas: Optional[list[dict]]
     logging_rag: Optional[dict]
     resposta_estruturada: Optional[dict]
+    pergunta_medico: Optional[str]
+    contexto_valido: Optional[bool]
+    justificativa_guardrail: Optional[str]
+    contexto_erro_tecnico: Optional[bool]

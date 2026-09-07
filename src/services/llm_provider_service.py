@@ -47,7 +47,9 @@ def _preferencias_llm() -> dict:
             "base_url": os.getenv("MEDPT_LLM_BASE_URL", GROQ_URL) or GROQ_URL,
             "model": os.getenv("MEDPT_LLM_MODEL", MODELO_GROQ) or MODELO_GROQ,
             "reasoning_effort": os.getenv("MEDPT_LLM_REASONING_EFFORT") or "none",
-        }
+            "max_tokens":1000
+        } 
+        
     if openai:
         return {
             "api_key": openai,

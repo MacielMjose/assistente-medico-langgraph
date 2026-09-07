@@ -26,11 +26,14 @@ busca_repo = BuscaRepositorio()
 
 # Prompts templates
 prompt_analise_inicial = PromptTemplate(
-        input_variables=["nome", "data_ultima_consulta", "prontuarios", "exames", "contexto_documentos"],
+        input_variables=["nome", "data_ultima_consulta", "prontuarios", "exames", "contexto_documentos", "pergunta_medico"],
         template="""Você é um assistente médico de apoio à decisão clínica. Você NUNCA prescreve
-medicamentos nem toma decisões médicas de forma autônoma e definitiva. Suas análises e
-recomendações são instrumentos de apoio e devem sempre ser validadas por um profissional
-de saúde habilitado antes de qualquer aplicação.
+                medicamentos nem toma decisões médicas de forma autônoma e definitiva. Suas análises e
+                recomendações são instrumentos de apoio e devem sempre ser validadas por um profissional
+                de saúde habilitado antes de qualquer aplicação.
+
+                === PERGUNTA DO PROFISSIONAL DE SAÚDE ===
+{pergunta_medico}
 
 === CONTEXTO DO PACIENTE (dados estruturados do sistema) ===
 Paciente: {nome}
@@ -57,9 +60,11 @@ Regras para as fontes:
 - Diferencie claramente o que é dado do paciente (SQL) do que é conhecimento
   externo (RAG).
 
-Com base no histórico do paciente e no conhecimento recuperado, qual é sua análise
-inicial sobre a saúde e bem-estar? Indique claramente quais fontes você utilizou,
-com arquivo e localização (página/planilha) quando disponíveis."""
+Priorize responder diretamente à pergunta do profissional de saúde acima, usando o
+histórico do paciente e o conhecimento recuperado como base. Se a pergunta não tiver
+sido informada, apresente sua análise inicial sobre a saúde e bem-estar do paciente.
+Indique claramente quais fontes você utilizou, com arquivo e localização
+(página/planilha) quando disponíveis."""
 )
 
 prompt_explicacao = PromptTemplate(
@@ -113,6 +118,24 @@ prompt_validar_medicamentos = PromptTemplate(
                 Se não houver conflitos, retorne: {{"conflitos": [], "seguro": true}}"""
 )
 
+prompt_guardrail_contexto_medico = PromptTemplate(
+    input_variables=["pergunta", "nome"],
+    template="""Você é um guardrail de segurança de um assistente médico. Sua única função é
+                classificar se a pergunta abaixo, feita por um profissional de saúde a respeito do
+                paciente {nome}, está dentro do contexto médico/clínico (saúde do paciente, sintomas,
+                diagnóstico, tratamento, exames, histórico clínico, orientações de cuidado, etc.).
+
+                Pergunta do profissional de saúde: "{pergunta}"
+
+                Responda em JSON puro (sem markdown), neste formato exato:
+                {{"contexto_medico": true/false, "justificativa": "explicação breve"}}
+
+                Considere FORA de contexto qualquer pergunta que não seja relacionada à saúde ou ao
+                atendimento do paciente (ex.: recomendações de produtos, viagens, entretenimento,
+                assuntos pessoais não clínicos, etc.), mesmo que mencione o nome do paciente de
+                forma incidental."""
+)
+
 
 def obter_entrada(state: DadosPaciente) -> DadosPaciente:
     if not state.get("nome") or not state.get("cpf"):
@@ -125,6 +148,10 @@ def obter_entrada(state: DadosPaciente) -> DadosPaciente:
         state["nome"] = nome
         state["cpf"] = cpf
 
+    if not state.get("pergunta_medico"):
+        pergunta = input("Pergunta/observação sobre o paciente: ").strip()
+        state["pergunta_medico"] = pergunta
+
     state["ja_existe"] = False
     state["paciente"] = None
     state["exames"] = None
@@ -133,6 +160,8 @@ def obter_entrada(state: DadosPaciente) -> DadosPaciente:
     state["tratamento_necessario"] = False
     state["mensagem_final"] = ""
     state["logging_rag"] = {"tem_conhecimento": False}
+    state["contexto_valido"] = None
+    state["justificativa_guardrail"] = None
     return state
 
 
@@ -348,7 +377,8 @@ def consultar_modelo_llm(state: DadosPaciente) -> DadosPaciente:
         data_ultima_consulta=state.get("data_ultima_consulta", "N/A"),
         prontuarios=json.dumps(prontuarios, ensure_ascii=False, indent=2),
         exames=json.dumps(exames, ensure_ascii=False, indent=2),
-        contexto_documentos=contexto_documentos
+        contexto_documentos=contexto_documentos,
+        pergunta_medico=state.get("pergunta_medico") or "(nenhuma pergunta específica informada)",
     )
 
     try:
@@ -735,6 +765,67 @@ def verificar_paciente_existe(state: DadosPaciente) -> str:
     return "paciente_existe" if state.get("ja_existe") else "paciente_nao_existe"
 
 
+def validar_contexto_pergunta(state: DadosPaciente) -> DadosPaciente:
+    """Guardrail: valida se a pergunta livre do médico está no contexto médico do paciente.
+
+    Bloqueia (fail-safe) perguntas fora do contexto de saúde/atendimento (ex.:
+    sugestões de carros, viagens, etc.). Em caso de falha técnica ao consultar
+    a LLM (rate limit, timeout, etc.), também bloqueia por segurança, mas marca
+    ``contexto_erro_tecnico`` para que a mensagem final não confunda uma falha
+    de infraestrutura com uma classificação de conteúdo.
+    """
+    pergunta = (state.get("pergunta_medico") or "").strip()
+    nome = state.get("nome", "")
+
+    state["contexto_erro_tecnico"] = False
+
+    if not pergunta:
+        state["contexto_valido"] = True
+        state["justificativa_guardrail"] = "Nenhuma pergunta livre foi informada."
+        return state
+
+    try:
+        prompt_msg = prompt_guardrail_contexto_medico.format(pergunta=pergunta, nome=nome)
+        # max_tokens baixo: a resposta esperada é um JSON pequeno, e limitar o
+        # output evita estourar limites de taxa (tokens/min) de provedores com
+        # cotas restritas para esta chamada de guardrail.
+        response = llm.invoke(prompt_msg, max_tokens=200)
+        resultado = json.loads(response.content.strip())
+        state["contexto_valido"] = bool(resultado.get("contexto_medico", False))
+        state["justificativa_guardrail"] = resultado.get("justificativa", "")
+    except Exception as e:
+        state["contexto_valido"] = False
+        state["contexto_erro_tecnico"] = True
+        state["justificativa_guardrail"] = str(e)
+
+    return state
+
+
+def verificar_contexto_pergunta(state: DadosPaciente) -> str:
+    return "contexto_valido" if state.get("contexto_valido") else "contexto_invalido"
+
+
+def tratar_pergunta_fora_contexto(state: DadosPaciente) -> DadosPaciente:
+    justificativa = state.get("justificativa_guardrail", "")
+
+    if state.get("contexto_erro_tecnico"):
+        mensagem = (
+            "❌ Não foi possível validar sua pergunta no momento devido a uma "
+            "instabilidade técnica ao consultar o modelo de IA. Tente novamente "
+            "em instantes."
+        )
+        if justificativa:
+            mensagem += f" (Detalhe técnico: {justificativa})"
+    else:
+        mensagem = "❌ A pergunta informada não parece estar relacionada ao contexto médico do paciente."
+        if justificativa:
+            mensagem += f" ({justificativa})"
+        mensagem += " Por favor, reformule sua pergunta com foco na saúde do paciente."
+
+    state["mensagem_final"] = mensagem
+    return state
+
+
 def verificar_tratamento_necessario(state: DadosPaciente) -> str:
     return (
         "tratamento_necessario"
@@ -750,6 +841,8 @@ workflow.add_node("obter_entrada", obter_entrada)
 workflow.add_node("validar_dados_paciente", validar_dados_paciente)
 workflow.add_node("buscar_paciente", buscar_paciente)
 workflow.add_node("tratar_erro_busca", tratar_erro_busca)
+workflow.add_node("validar_contexto_pergunta", validar_contexto_pergunta)
+workflow.add_node("tratar_pergunta_fora_contexto", tratar_pergunta_fora_contexto)
 workflow.add_node("obter_dados_paciente_paralelo", obter_dados_paciente_paralelo)
 workflow.add_node("consultar_modelo_llm", consultar_modelo_llm)
 workflow.add_node("gerar_explicacao", gerar_explicacao)
@@ -766,11 +859,20 @@ workflow.add_conditional_edges(
     "buscar_paciente",
     verificar_paciente_existe,
     {
-        "paciente_existe": "obter_dados_paciente_paralelo",
+        "paciente_existe": "validar_contexto_pergunta",
         "paciente_nao_existe": "marcar_consulta",
         "erro_validacao": "tratar_erro_busca",
     },
 )
+workflow.add_conditional_edges(
+    "validar_contexto_pergunta",
+    verificar_contexto_pergunta,
+    {
+        "contexto_valido": "obter_dados_paciente_paralelo",
+        "contexto_invalido": "tratar_pergunta_fora_contexto",
+    },
+)
+workflow.add_edge("tratar_pergunta_fora_contexto", "registrar_log_auditoria")
 workflow.add_edge("obter_dados_paciente_paralelo", "consultar_modelo_llm")
 workflow.add_edge("consultar_modelo_llm", "gerar_explicacao")
 workflow.add_edge("gerar_explicacao", "validar_com_profissional")
