@@ -16,5 +16,27 @@ services:
       timeout: 3s
       retries: 12
 
+  ollama:
+    image: ollama/ollama:latest
+    container_name: assistente-medico-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    # Descomente para usar GPU NVIDIA (requer nvidia-container-toolkit no host):
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
 volumes:
   pgdata:
+  ollama_data:
