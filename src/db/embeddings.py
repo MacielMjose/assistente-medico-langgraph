@@ -55,6 +55,14 @@ def dividir_documento(documento: Document, max_chars: int = TAMANHO_CHUNK) -> li
     return pedacos
 
 
+def nome_modelo_do(provedor: Embeddings) -> str:
+    """Extrai o nome do modelo de um provedor de embeddings."""
+    if isinstance(provedor, OllamaEmbeddings):
+        return provedor.model
+    # Mock/DeterministicFakeEmbedding
+    return "mock"
+
+
 def obter_provedor(nome: str) -> Embeddings:
     """Obtém o provedor de embeddings. Suporta 'ollama' e 'mock' (para testes)."""
     escolha = nome.strip().lower()
