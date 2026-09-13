@@ -136,26 +136,27 @@ prompt_validar_medicamentos = PromptTemplate(
 
 prompt_guardrail_contexto_medico = PromptTemplate(
     input_variables=["pergunta", "nome"],
-    template="""Você é um guardrail de segurança de um assistente médico. Sua única função é
-                classificar se a pergunta abaixo, feita por um profissional de saúde a respeito do
-                paciente {nome}, está dentro do contexto médico/clínico.
+    template="""Você é um guardrail minimalista para um assistente médico. Sua função é bloquear
+APENAS perguntas que são claramente fora do contexto médico.
 
-                INCLUA no contexto médico:
-                - Sintomas, queixas e relatos do paciente
-                - Diagnóstico, investigação diagnóstica e indicação de procedimentos/exames
-                - Tratamento, medicamentos, terapias e orientações de cuidado
-                - Histórico clínico, comorbidades, alergias
-                - Avaliação clínica e prognóstico
-                - Orientações de seguimento e acompanhamento
+Bloqueia apenas se a pergunta for sobre:
+- Recomendações de produtos não-médicos (carros, eletrônicos, roupas, etc.)
+- Planejamento de viagens, turismo, entretenimento
+- Assuntos pessoais sem relação com saúde (relacionamentos, finanças, etc.)
+- Pedidos completamente desconectados de atendimento/saúde
 
-                EXCLUA do contexto médico:
-                - Recomendações não clínicas (produtos, viagens, entretenimento, assuntos pessoais)
-                - Perguntas que nada têm a ver com saúde ou atendimento
+Aceita (permite passar) qualquer coisa que possa estar relacionada a:
+- Sintomas, queixa, condição de saúde do paciente
+- Orientações, tratamento, medicação, procedimentos, exames
+- Histórico clínico, acompanhamento
+- Avaliação clínica, recomendações
+- Dúvida sobre interpretação clínica
 
-                Pergunta do profissional de saúde: "{pergunta}"
+Quando há ambiguidade, ACEITA (contexto_medico = true).
 
-                Responda em JSON puro (sem markdown), neste formato exato:
-                {{"contexto_medico": true/false, "justificativa": "explicação breve"}}"""
+Pergunta: "{pergunta}"
+
+Responda JSON puro: {{"contexto_medico": true/false, "justificativa": "breve"}}"""
 )
 
 
@@ -328,7 +329,7 @@ async def _executar_recuperar_conhecimento(pergunta_medico, prontuarios):
             print(f"[DEBUG RAG] Retorno: consulta vazia")
             return {"conhecimento_recuperado": [], "fontes_utilizadas": [], "logging_rag": {}}
 
-        limiar_minimo = float(os.getenv("MEDPT_RAG_SIMILARIDADE_MINIMA", "0.3"))
+        limiar_minimo = float(os.getenv("MEDPT_RAG_SIMILARIDADE_MINIMA", "0.2"))
 
         inicio = _time.perf_counter()
         provider_name = os.getenv("MEDPT_EMBEDDING_PROVIDER", "mock")
@@ -345,7 +346,9 @@ async def _executar_recuperar_conhecimento(pergunta_medico, prontuarios):
 
         print(f"[DEBUG RAG] Documentos encontrados (brutos): {len(resultados_brutos)}")
         if resultados_brutos:
-            print(f"[DEBUG RAG] Scores: {[r.similaridade for r in resultados_brutos]}")
+            scores = [r.similaridade for r in resultados_brutos]
+            print(f"[DEBUG RAG] Scores: {scores}")
+            print(f"[DEBUG RAG] Score máximo: {max(scores):.4f}, mínimo: {min(scores):.4f}")
 
         resultados = [r for r in resultados_brutos if r.similaridade >= limiar_minimo]
         tempo_ms = int((_time.perf_counter() - inicio) * 1000)
