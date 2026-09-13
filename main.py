@@ -4,7 +4,6 @@ import asyncio
 import time
 from datetime import datetime, timedelta as td
 from langchain_core.prompts import PromptTemplate
-from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, END
 from src.models.dados_paciente import DadosPaciente
 from src.services.llm_provider_service import get_llm
@@ -17,25 +16,17 @@ from src.db.embeddings import obter_provedor
 from src.db.models import EntradaLog
 import re
 
-llm = get_llm()
-
-
 def _invoke_with_retry(llm_instance, prompt: str, max_retries: int = 3, **kwargs):
-    """Invoca o LLM com retry automático para ModelNotReadyException (Bedrock).
-
-    Quando um modelo customizado no Bedrock está sendo carregado, retorna
-    ModelNotReadyException. Esta função aguarda e tenta novamente automaticamente.
-    """
+    """Invoca o LLM com retry automático em caso de erro de indisponibilidade."""
     for tentativa in range(max_retries):
         try:
             return llm_instance.invoke(prompt, **kwargs)
         except Exception as e:
-            # Verifica se é erro de modelo não pronto (Bedrock)
             erro_str = str(e)
-            if "ModelNotReadyException" in erro_str or "not ready for inference" in erro_str:
+            if "not ready" in erro_str or "connection" in erro_str.lower():
                 if tentativa < max_retries - 1:
-                    tempo_espera = 5 * (tentativa + 1)  # 5s, 10s, 15s
-                    print(f"⏳ Modelo Bedrock não está pronto. Aguardando {tempo_espera}s... (tentativa {tentativa + 1}/{max_retries})")
+                    tempo_espera = 5 * (tentativa + 1)
+                    print(f"⏳ LLM indisponível. Aguardando {tempo_espera}s... (tentativa {tentativa + 1}/{max_retries})")
                     time.sleep(tempo_espera)
                     continue
             raise
@@ -46,47 +37,50 @@ agendamento_repo = AgendamentoRepositorio()
 log_repo = LogRepositorio()
 busca_repo = BuscaRepositorio()
 
+# LLM será inicializado dentro de executar_fluxo() para usar variáveis de ambiente atualizadas
+llm = None
+
 # Prompts templates
 prompt_analise_inicial = PromptTemplate(
         input_variables=["nome", "data_ultima_consulta", "prontuarios", "exames", "contexto_documentos", "pergunta_medico"],
         template="""Você é um assistente médico de apoio à decisão clínica. Você NUNCA prescreve
-medicamentos nem toma decisões médicas de forma autônoma e definitiva. Suas análises e
-recomendações são instrumentos de apoio e devem sempre ser validadas por um profissional
-de saúde habilitado antes de qualquer aplicação.
+                    medicamentos nem toma decisões médicas de forma autônoma e definitiva. Suas análises e
+                    recomendações são instrumentos de apoio e devem sempre ser validadas por um profissional
+                    de saúde habilitado antes de qualquer aplicação.
 
-=== PERGUNTA DO PROFISSIONAL DE SAÚDE ===
-{pergunta_medico}
+                    === PERGUNTA DO PROFISSIONAL DE SAÚDE ===
+                    {pergunta_medico}
 
-=== CONTEXTO DO PACIENTE (dados estruturados do sistema) ===
-Paciente: {nome}
-Última consulta: {data_ultima_consulta}
+                    === CONTEXTO DO PACIENTE (dados estruturados do sistema) ===
+                    Paciente: {nome}
+                    Última consulta: {data_ultima_consulta}
 
-Prontuários recentes:
-{prontuarios}
+                    Prontuários recentes:
+                    {prontuarios}
 
-Exames recentes:
-{exames}
+                    Exames recentes:
+                    {exames}
 
-{contexto_documentos}
+                    {contexto_documentos}
 
-Regras para as fontes:
-- Utilize os dados estruturados do paciente para descrever o quadro clínico.
-- Utilize o conhecimento de referência recuperado (RAG), se presente, para
-  fundamentar, contextualizar ou enriquecer a sua análise.
-- Ao usar uma informação do conhecimento recuperado, cite a referência
-  correspondente indicando o número, ex.: "Conforme a referência [1]".
-- NUNCA invente fontes que não estejam listadas no contexto documental.
-- Se nenhuma fonte documental relevante foi recuperada, deixe isso explícito,
-  por exemplo: "Não foram encontradas fontes documentais relevantes na base de
-  conhecimento para complementar esta análise."
-- Diferencie claramente o que é dado do paciente (SQL) do que é conhecimento
-  externo (RAG).
+                    Regras para as fontes:
+                    - Utilize os dados estruturados do paciente para descrever o quadro clínico.
+                    - Utilize o conhecimento de referência recuperado (RAG), se presente, para
+                    fundamentar, contextualizar ou enriquecer a sua análise.
+                    - Ao usar uma informação do conhecimento recuperado, cite a referência
+                    correspondente indicando o número, ex.: "Conforme a referência [1]".
+                    - NUNCA invente fontes que não estejam listadas no contexto documental.
+                    - Se nenhuma fonte documental relevante foi recuperada, deixe isso explícito,
+                    por exemplo: "Não foram encontradas fontes documentais relevantes na base de
+                    conhecimento para complementar esta análise."
+                    - Diferencie claramente o que é dado do paciente (SQL) do que é conhecimento
+                    externo (RAG).
 
-Priorize responder diretamente à pergunta do profissional de saúde acima, usando o
-histórico do paciente e o conhecimento recuperado como base. Se a pergunta não tiver
-sido informada, apresente sua análise inicial sobre a saúde e bem-estar do paciente.
-Indique claramente quais fontes você utilizou, com arquivo e localização
-(página/planilha) quando disponíveis."""
+                    Priorize responder diretamente à pergunta do profissional de saúde acima, usando o
+                    histórico do paciente e o conhecimento recuperado como base. Se a pergunta não tiver
+                    sido informada, apresente sua análise inicial sobre a saúde e bem-estar do paciente.
+                    Indique claramente quais fontes você utilizou, com arquivo e localização
+                    (página/planilha) quando disponíveis."""
 )
 
 prompt_explicacao = PromptTemplate(
@@ -143,19 +137,25 @@ prompt_validar_medicamentos = PromptTemplate(
 prompt_guardrail_contexto_medico = PromptTemplate(
     input_variables=["pergunta", "nome"],
     template="""Você é um guardrail de segurança de um assistente médico. Sua única função é
-classificar se a pergunta abaixo, feita por um profissional de saúde a respeito do
-paciente {nome}, está dentro do contexto médico/clínico (saúde do paciente, sintomas,
-diagnóstico, tratamento, exames, histórico clínico, orientações de cuidado, etc.).
+                classificar se a pergunta abaixo, feita por um profissional de saúde a respeito do
+                paciente {nome}, está dentro do contexto médico/clínico.
 
-Pergunta do profissional de saúde: "{pergunta}"
+                INCLUA no contexto médico:
+                - Sintomas, queixas e relatos do paciente
+                - Diagnóstico, investigação diagnóstica e indicação de procedimentos/exames
+                - Tratamento, medicamentos, terapias e orientações de cuidado
+                - Histórico clínico, comorbidades, alergias
+                - Avaliação clínica e prognóstico
+                - Orientações de seguimento e acompanhamento
 
-Responda em JSON puro (sem markdown), neste formato exato:
-{{"contexto_medico": true/false, "justificativa": "explicação breve"}}
+                EXCLUA do contexto médico:
+                - Recomendações não clínicas (produtos, viagens, entretenimento, assuntos pessoais)
+                - Perguntas que nada têm a ver com saúde ou atendimento
 
-Considere FORA de contexto qualquer pergunta que não seja relacionada à saúde ou ao
-atendimento do paciente (ex.: recomendações de produtos, viagens, entretenimento,
-assuntos pessoais não clínicos, etc.), mesmo que mencione o nome do paciente de
-forma incidental."""
+                Pergunta do profissional de saúde: "{pergunta}"
+
+                Responda em JSON puro (sem markdown), neste formato exato:
+                {{"contexto_medico": true/false, "justificativa": "explicação breve"}}"""
 )
 
 
@@ -252,14 +252,15 @@ def buscar_paciente(state: DadosPaciente) -> DadosPaciente:
 
 async def _executar_obter_prontuarios(paciente_id):
     try:
+        # Reduzir quantidade de prontuários/exames para não exceder contexto do Ollama
         atendimentos = await asyncio.to_thread(
-            atendimento_repo.obter_prontuarios, paciente_id, 10
+            atendimento_repo.obter_prontuarios, paciente_id, 3  # Reduzido de 10
         )
         condicoes = await asyncio.to_thread(
             atendimento_repo.obter_condicoes, paciente_id
         )
         exames = await asyncio.to_thread(
-            atendimento_repo.obter_exames, paciente_id, 10
+            atendimento_repo.obter_exames, paciente_id, 3  # Reduzido de 10
         )
         return {
             "prontuarios": [
@@ -298,7 +299,12 @@ async def _executar_recuperar_conhecimento(pergunta_medico, prontuarios):
     """
     import time as _time
 
+    print(f"\n[DEBUG RAG] Iniciando recuperação de conhecimento...")
+    print(f"[DEBUG RAG] Prontuários: {len(prontuarios)}")
+    print(f"[DEBUG RAG] Pergunta: {pergunta_medico[:80] if pergunta_medico else 'VAZIA'}...")
+
     if not prontuarios:
+        print(f"[DEBUG RAG] Retorno: sem prontuários")
         return {"conhecimento_recuperado": [], "fontes_utilizadas": [], "logging_rag": {}}
 
     try:
@@ -310,18 +316,35 @@ async def _executar_recuperar_conhecimento(pergunta_medico, prontuarios):
                 [f"{p.get('queixa', '')} {p.get('conduta', '')}" for p in prontuarios[:3]]
             ).strip()
 
+        print(f"[DEBUG RAG] Consulta final: {consulta[:80]}...")
+
         if not consulta:
+            print(f"[DEBUG RAG] Retorno: consulta vazia")
             return {"conhecimento_recuperado": [], "fontes_utilizadas": [], "logging_rag": {}}
 
         limiar_minimo = float(os.getenv("MEDPT_RAG_SIMILARIDADE_MINIMA", "0.3"))
 
         inicio = _time.perf_counter()
-        provedor = obter_provedor(os.getenv("MEDPT_EMBEDDING_PROVIDER", "mock"))
+        provider_name = os.getenv("MEDPT_EMBEDDING_PROVIDER", "mock")
+        provedor = obter_provedor(provider_name)
+
+        # Debug RAG
+        print(f"\n[DEBUG RAG] Consulta: {consulta[:100]}...")
+        print(f"[DEBUG RAG] Provider: {provider_name}")
+        print(f"[DEBUG RAG] Limiar mínimo: {limiar_minimo}")
+
         resultados_brutos = await asyncio.to_thread(
             busca_repo.buscar_conhecimento, consulta, provedor, 5
         )
+
+        print(f"[DEBUG RAG] Documentos encontrados (brutos): {len(resultados_brutos)}")
+        if resultados_brutos:
+            print(f"[DEBUG RAG] Scores: {[r.similaridade for r in resultados_brutos]}")
+
         resultados = [r for r in resultados_brutos if r.similaridade >= limiar_minimo]
         tempo_ms = int((_time.perf_counter() - inicio) * 1000)
+
+        print(f"[DEBUG RAG] Documentos após limiar: {len(resultados)}")
 
         conhecimento = [
             {
@@ -366,11 +389,14 @@ async def _executar_recuperar_conhecimento(pergunta_medico, prontuarios):
             "fontes_utilizadas": fontes,
             "logging_rag": logging_rag,
         }
-    except Exception:
+    except Exception as e:
+        print(f"\n[DEBUG RAG] ERRO: {str(e)}")
+        import traceback
+        print(f"[DEBUG RAG] Traceback: {traceback.format_exc()}")
         return {
             "conhecimento_recuperado": [],
             "fontes_utilizadas": [],
-            "logging_rag": {"tem_conhecimento": False},
+            "logging_rag": {"tem_conhecimento": False, "erro": str(e)},
         }
 
 
@@ -499,10 +525,23 @@ def extrair_alergias(state: DadosPaciente) -> DadosPaciente:
         response = _invoke_with_retry(llm, prompt_msg)
         resposta_texto = response.content.strip()
 
-        # Tentar parse JSON
+        # Parse JSON robusto
         import json as json_lib
-        resultado = json_lib.loads(resposta_texto)
-        state["alergias_extraidas"] = resultado.get("alergias", [])
+        import re as re_lib
+
+        resultado = None
+        try:
+            resultado = json_lib.loads(resposta_texto)
+        except json_lib.JSONDecodeError:
+            # Procurar por JSON válido na resposta
+            for match in re_lib.finditer(r'\{[^{}]*"alergias"[^{}]*\}', resposta_texto):
+                try:
+                    resultado = json_lib.loads(match.group())
+                    break
+                except json_lib.JSONDecodeError:
+                    continue
+
+        state["alergias_extraidas"] = resultado.get("alergias", []) if resultado else []
     except Exception as e:
         print(f"Erro ao extrair alergias: {e}")
         state["alergias_extraidas"] = []
@@ -564,10 +603,23 @@ def validar_alergias_guardrail(state: DadosPaciente) -> DadosPaciente:
 
         response = _invoke_with_retry(llm, prompt_msg)
         resultado_texto = response.content.strip()
-        resultado = json_lib.loads(resultado_texto)
 
-        conflitos = resultado.get("conflitos", [])
-        seguro = resultado.get("seguro", True)
+        # Parse JSON robusto
+        resultado = None
+        try:
+            resultado = json_lib.loads(resultado_texto)
+        except json_lib.JSONDecodeError:
+            # Procurar por JSON válido na resposta
+            import re as re_lib
+            for match in re_lib.finditer(r'\{[^{}]*"conflitos"[^{}]*\}', resultado_texto):
+                try:
+                    resultado = json_lib.loads(match.group())
+                    break
+                except json_lib.JSONDecodeError:
+                    continue
+
+        conflitos = resultado.get("conflitos", []) if resultado else []
+        seguro = resultado.get("seguro", True) if resultado else True
 
         if conflitos:
             state["validacao_alergias"]["seguro"] = False
@@ -825,24 +877,42 @@ def validar_contexto_pergunta(state: DadosPaciente) -> DadosPaciente:
         response = _invoke_with_retry(llm, prompt_msg, max_tokens=200)
         resposta_texto = response.content.strip()
 
-        # Tenta extrair JSON da resposta (pode estar embutido em texto)
+        # Parse robusto: extrair JSON válido da resposta (pode ter texto antes/depois)
+        resultado = None
         try:
             resultado = json.loads(resposta_texto)
         except json.JSONDecodeError:
-            # Se não conseguir parsear, tenta encontrar JSON no texto
+            # Modelo pode ter gerado texto antes/depois do JSON
+            # Procurar por JSON válido usando múltiplas estratégias
             import re
-            match = re.search(r'\{.*"contexto_medico".*\}', resposta_texto, re.DOTALL)
-            if match:
-                resultado = json.loads(match.group())
-            else:
-                # Se não há JSON válido, assume que a pergunta é válida (fail-open)
-                print(f"⚠️ Guardrail não conseguiu parsear resposta JSON: {resposta_texto[:200]}")
-                state["contexto_valido"] = True
-                state["justificativa_guardrail"] = "Resposta mal formatada, assumindo contexto válido"
-                return state
 
-        state["contexto_valido"] = bool(resultado.get("contexto_medico", False))
-        state["justificativa_guardrail"] = resultado.get("justificativa", "")
+            # Estratégia 1: Procurar por {...} que contenha "contexto_medico"
+            for match in re.finditer(r'\{[^{}]*"contexto_medico"[^{}]*\}', resposta_texto):
+                try:
+                    resultado = json.loads(match.group())
+                    break
+                except json.JSONDecodeError:
+                    continue
+
+            # Estratégia 2: Se ainda não achou, procurar por qualquer {...}
+            if not resultado:
+                for match in re.finditer(r'\{[^{}]*\}', resposta_texto):
+                    try:
+                        candidato = json.loads(match.group())
+                        if "contexto_medico" in candidato:
+                            resultado = candidato
+                            break
+                    except json.JSONDecodeError:
+                        continue
+
+        if resultado and "contexto_medico" in resultado:
+            state["contexto_valido"] = bool(resultado.get("contexto_medico", False))
+            state["justificativa_guardrail"] = resultado.get("justificativa", "")
+        else:
+            # Se não conseguiu parsear nenhum JSON válido, fail-open
+            print(f"⚠️ Guardrail não conseguiu parsear resposta JSON: {resposta_texto[:200]}")
+            state["contexto_valido"] = True
+            state["justificativa_guardrail"] = "Resposta mal formatada, assumindo contexto válido"
     except Exception as e:
         state["contexto_valido"] = False
         state["contexto_erro_tecnico"] = True
@@ -948,6 +1018,10 @@ print(app.get_graph().draw_ascii())
 
 
 async def executar_fluxo():
+    global llm
+    # Inicializar LLM aqui para usar variáveis de ambiente atualizadas
+    llm = get_llm()
+
     resultado = await app.ainvoke({})
 
     print("\n" + "="*60)

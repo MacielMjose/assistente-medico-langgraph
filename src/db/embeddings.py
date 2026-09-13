@@ -1,28 +1,18 @@
 """Provedores de embeddings via LangChain + divisão em chunks (Document).
 
-A integração usa as abstrações oficiais de LangChain:
-  * OpenAIEmbeddings (produção) -> text-embedding-3-small
-  * DeterministicFakeEmbedding (testes/mock, determinístico pelo conteúdo do texto)
-  * RecursiveCharacterTextSplitter + Document (chunking de prontuários)
+Usa Ollama local para embeddings. Configure o modelo em MEDPT_OLLAMA_EMBEDDING_MODEL.
 
 Uso:
-    provedor = obter_provedor("openai")   # ou "mock"
+    provedor = obter_provedor("ollama")
     chunks = dividir_documento(Document(page_content=...))
 """
 
 import os
 
 from langchain_core.documents import Document
-from langchain_core.embeddings import DeterministicFakeEmbedding, Embeddings
-from langchain_openai import OpenAIEmbeddings
+from langchain_core.embeddings import Embeddings
 from langchain_ollama import OllamaEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-
-MODELO_OPENAI = "text-embedding-3-small"
-DIMS_OPENAI = 1536
-
-MODELO_MOCK = "fake-embeddings"
-DIMS_MOCK = 64
 
 OLLAMA_URL_PADRAO = "http://localhost:11434"
 
@@ -65,62 +55,22 @@ def dividir_documento(documento: Document, max_chars: int = TAMANHO_CHUNK) -> li
     return pedacos
 
 
-def _mock_embeddings() -> DeterministicFakeEmbedding:
-    return DeterministicFakeEmbedding(size=DIMS_MOCK)
-
-
-def _openai_embeddings() -> OpenAIEmbeddings:
-    chave = os.getenv("OPENAI_API_KEY")
-    if not chave:
-        raise RuntimeError(
-            "OPENAI_API_KEY ausente. Atenção: a chave da Groq não funciona na API "
-            "da OpenAI; cadastre uma chave válida em https://platform.openai.com."
-        )
-    return OpenAIEmbeddings(model=MODELO_OPENAI, api_key=chave)
-
-
-def _ollama_embeddings() -> OllamaEmbeddings:
-    """Embeddings via modelo Ollama local (ex.: modelo de embedding customizado
-    ou um publicado como ``nomic-embed-text``, ``mxbai-embed-large``, etc.).
-    """
-    modelo = os.getenv("MEDPT_OLLAMA_EMBEDDING_MODEL", "").strip()
-    if not modelo:
-        raise RuntimeError(
-            "MEDPT_OLLAMA_EMBEDDING_MODEL ausente no .env. Defina o nome do "
-            "modelo de embedding importado/disponível no Ollama."
-        )
-    base_url = os.getenv("MEDPT_OLLAMA_BASE_URL", OLLAMA_URL_PADRAO) or OLLAMA_URL_PADRAO
-    return OllamaEmbeddings(model=modelo, base_url=base_url)
-
-
 def obter_provedor(nome: str) -> Embeddings:
+    """Obtém o provedor de embeddings. Suporta 'ollama' e 'mock' (para testes)."""
     escolha = nome.strip().lower()
-    if escolha == "mock":
-        return _mock_embeddings()
-    if escolha == "openai":
-        return _openai_embeddings()
+
     if escolha == "ollama":
-        return _ollama_embeddings()
-    raise ValueError(f"Provedor desconhecido: '{nome}'. Use: mock, openai ou ollama.")
+        modelo = os.getenv("MEDPT_OLLAMA_EMBEDDING_MODEL", "").strip()
+        if not modelo:
+            raise RuntimeError(
+                "MEDPT_OLLAMA_EMBEDDING_MODEL ausente no .env. Configure o modelo "
+                "de embedding do Ollama (ex: bge-m3, nomic-embed-text)."
+            )
+        base_url = os.getenv("MEDPT_OLLAMA_BASE_URL", OLLAMA_URL_PADRAO) or OLLAMA_URL_PADRAO
+        return OllamaEmbeddings(model=modelo, base_url=base_url)
 
+    if escolha == "mock":
+        from langchain_core.embeddings import DeterministicFakeEmbedding
+        return DeterministicFakeEmbedding(size=64)
 
-def nome_modelo_do(provedor: Embeddings) -> str:
-    """Rótulo estável para distinguir vetores entre modelos."""
-
-    if isinstance(provedor, OpenAIEmbeddings):
-        return provedor.model
-    if isinstance(provedor, DeterministicFakeEmbedding):
-        return MODELO_MOCK
-    if isinstance(provedor, OllamaEmbeddings):
-        return provedor.model
-    return type(provedor).__name__
-
-
-def dimensoes_do(provedor: Embeddings) -> int:
-    """Dimensão do vetor produzido pelo provedor."""
-
-    if isinstance(provedor, OpenAIEmbeddings):
-        return DIMS_OPENAI
-    if isinstance(provedor, DeterministicFakeEmbedding):
-        return provedor.size
-    return len(provedor.embed_query("verificação"))
+    raise ValueError(f"Provedor desconhecido: '{nome}'. Use: ollama ou mock.")
