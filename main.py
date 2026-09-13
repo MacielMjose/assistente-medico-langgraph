@@ -309,12 +309,18 @@ async def _executar_recuperar_conhecimento(pergunta_medico, prontuarios):
 
     try:
         pergunta_medico = (pergunta_medico or "").strip()
-        if pergunta_medico:
+        # Extrair contexto dos prontuários (queixa + conduta)
+        contexto_prontuarios = " ".join(
+            [f"{p.get('queixa', '')} {p.get('conduta', '')}" for p in prontuarios[:3]]
+        ).strip()
+
+        # Busca híbrida: combinar pergunta + prontuários para melhor cobertura semântica
+        if pergunta_medico and contexto_prontuarios:
+            consulta = f"{pergunta_medico} {contexto_prontuarios}"
+        elif pergunta_medico:
             consulta = pergunta_medico
         else:
-            consulta = " ".join(
-                [f"{p.get('queixa', '')} {p.get('conduta', '')}" for p in prontuarios[:3]]
-            ).strip()
+            consulta = contexto_prontuarios
 
         print(f"[DEBUG RAG] Consulta final: {consulta[:80]}...")
 
