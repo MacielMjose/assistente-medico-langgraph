@@ -217,7 +217,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Ingere documentos de conhecimento no vector store (PGVector)."
     )
-    parser.add_argument("--provider", default="mock", choices=["mock", "openai"])
+    parser.add_argument("--provider", default="mock", choices=["mock", "openai", "ollama"])
     parser.add_argument("--dsn", type=str, default=None, help="DSN do PostgreSQL.")
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--max-chars-chunk", type=int, default=800)
