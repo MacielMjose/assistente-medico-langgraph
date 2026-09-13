@@ -15,6 +15,7 @@ import os
 from langchain_core.documents import Document
 from langchain_core.embeddings import DeterministicFakeEmbedding, Embeddings
 from langchain_openai import OpenAIEmbeddings
+from langchain_ollama import OllamaEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 MODELO_OPENAI = "text-embedding-3-small"
@@ -22,6 +23,8 @@ DIMS_OPENAI = 1536
 
 MODELO_MOCK = "fake-embeddings"
 DIMS_MOCK = 64
+
+OLLAMA_URL_PADRAO = "http://localhost:11434"
 
 TAMANHO_CHUNK = 600
 SOBREPOSICAO_CHUNK = 50
@@ -76,13 +79,29 @@ def _openai_embeddings() -> OpenAIEmbeddings:
     return OpenAIEmbeddings(model=MODELO_OPENAI, api_key=chave)
 
 
+def _ollama_embeddings() -> OllamaEmbeddings:
+    """Embeddings via modelo Ollama local (ex.: modelo de embedding customizado
+    ou um publicado como ``nomic-embed-text``, ``mxbai-embed-large``, etc.).
+    """
+    modelo = os.getenv("MEDPT_OLLAMA_EMBEDDING_MODEL", "").strip()
+    if not modelo:
+        raise RuntimeError(
+            "MEDPT_OLLAMA_EMBEDDING_MODEL ausente no .env. Defina o nome do "
+            "modelo de embedding importado/disponível no Ollama."
+        )
+    base_url = os.getenv("MEDPT_OLLAMA_BASE_URL", OLLAMA_URL_PADRAO) or OLLAMA_URL_PADRAO
+    return OllamaEmbeddings(model=modelo, base_url=base_url)
+
+
 def obter_provedor(nome: str) -> Embeddings:
     escolha = nome.strip().lower()
     if escolha == "mock":
         return _mock_embeddings()
     if escolha == "openai":
         return _openai_embeddings()
-    raise ValueError(f"Provedor desconhecido: '{nome}'. Use: mock ou openai.")
+    if escolha == "ollama":
+        return _ollama_embeddings()
+    raise ValueError(f"Provedor desconhecido: '{nome}'. Use: mock, openai ou ollama.")
 
 
 def nome_modelo_do(provedor: Embeddings) -> str:
@@ -92,6 +111,8 @@ def nome_modelo_do(provedor: Embeddings) -> str:
         return provedor.model
     if isinstance(provedor, DeterministicFakeEmbedding):
         return MODELO_MOCK
+    if isinstance(provedor, OllamaEmbeddings):
+        return provedor.model
     return type(provedor).__name__
 
 

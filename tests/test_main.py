@@ -66,23 +66,37 @@ def mock_llm(monkeypatch):
 # ---------------------------------------------------------------------------
 
 class TestObterEntrada:
-    def test_nao_pede_input_quando_nome_e_cpf_ja_presentes(self, monkeypatch):
+    def test_nao_pede_input_quando_nome_cpf_e_pergunta_ja_presentes(self, monkeypatch):
         chamou_input = MagicMock(side_effect=AssertionError("input() não deveria ser chamado"))
         monkeypatch.setattr("builtins.input", chamou_input)
 
-        estado = main.obter_entrada({"nome": "João", "cpf": "12345678900"})
+        estado = main.obter_entrada(
+            {"nome": "João", "cpf": "12345678900", "pergunta_medico": "Ele pode tomar dipirona?"}
+        )
 
         assert estado["nome"] == "João"
         assert estado["cpf"] == "12345678900"
+        assert estado["pergunta_medico"] == "Ele pode tomar dipirona?"
 
     def test_pede_input_quando_nome_ausente(self, monkeypatch):
-        respostas = iter(["Ana Souza", "98765432100"])
+        respostas = iter(["Ana Souza", "98765432100", "Ela tem alguma alergia?"])
         monkeypatch.setattr("builtins.input", lambda *_: next(respostas))
 
         estado = main.obter_entrada({})
 
         assert estado["nome"] == "Ana Souza"
         assert estado["cpf"] == "98765432100"
+        assert estado["pergunta_medico"] == "Ela tem alguma alergia?"
+
+    def test_pede_apenas_pergunta_quando_nome_e_cpf_ja_presentes(self, monkeypatch):
+        respostas = iter(["Qual o risco cardiovascular dele?"])
+        monkeypatch.setattr("builtins.input", lambda *_: next(respostas))
+
+        estado = main.obter_entrada({"nome": "João", "cpf": "12345678900"})
+
+        assert estado["nome"] == "João"
+        assert estado["cpf"] == "12345678900"
+        assert estado["pergunta_medico"] == "Qual o risco cardiovascular dele?"
 
     def test_inicializa_campos_padrao_do_estado(self, monkeypatch):
         monkeypatch.setattr("builtins.input", lambda *_: "x")
@@ -96,6 +110,8 @@ class TestObterEntrada:
         assert estado["prontuarios"] is None
         assert estado["tratamento_necessario"] is False
         assert estado["mensagem_final"] == ""
+        assert estado["contexto_valido"] is None
+        assert estado["justificativa_guardrail"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -236,6 +252,93 @@ class TestTratarErroBusca:
 
 
 # ---------------------------------------------------------------------------
+# validar_contexto_pergunta (guardrail) / tratar_pergunta_fora_contexto
+# ---------------------------------------------------------------------------
+
+class TestValidarContextoPergunta:
+    def test_pergunta_vazia_e_valida_sem_chamar_llm(self, mock_llm):
+        estado = main.validar_contexto_pergunta({"pergunta_medico": "", "nome": "Maria"})
+
+        assert estado["contexto_valido"] is True
+        assert estado["contexto_erro_tecnico"] is False
+        mock_llm.invoke.assert_not_called()
+
+    def test_pergunta_medica_e_classificada_como_valida(self, mock_llm):
+        mock_llm.invoke.return_value = _resposta_llm(
+            '{"contexto_medico": true, "justificativa": "fala de sintomas do paciente"}'
+        )
+
+        estado = main.validar_contexto_pergunta(
+            {"pergunta_medico": "Quais os riscos da hipertensão dela?", "nome": "Maria"}
+        )
+
+        assert estado["contexto_valido"] is True
+        assert estado["contexto_erro_tecnico"] is False
+        args, kwargs = mock_llm.invoke.call_args
+        assert kwargs.get("max_tokens") == 200
+
+    def test_pergunta_fora_de_contexto_e_bloqueada(self, mock_llm):
+        mock_llm.invoke.return_value = _resposta_llm(
+            '{"contexto_medico": false, "justificativa": "pergunta sobre carros"}'
+        )
+
+        estado = main.validar_contexto_pergunta(
+            {"pergunta_medico": "Qual carro você recomenda comprar?", "nome": "Maria"}
+        )
+
+        assert estado["contexto_valido"] is False
+        assert estado["contexto_erro_tecnico"] is False
+        assert estado["justificativa_guardrail"] == "pergunta sobre carros"
+
+    def test_excecao_no_llm_bloqueia_com_erro_tecnico_marcado(self, mock_llm):
+        mock_llm.invoke.side_effect = RuntimeError("Error code: 429 - rate_limit_exceeded")
+
+        estado = main.validar_contexto_pergunta(
+            {"pergunta_medico": "Elenque o principal risco desse paciente", "nome": "Juan"}
+        )
+
+        assert estado["contexto_valido"] is False
+        assert estado["contexto_erro_tecnico"] is True
+        assert "429" in estado["justificativa_guardrail"]
+
+    def test_json_invalido_bloqueia_como_erro_tecnico(self, mock_llm):
+        mock_llm.invoke.return_value = _resposta_llm("não é json")
+
+        estado = main.validar_contexto_pergunta({"pergunta_medico": "Ela pode tomar dipirona?", "nome": "Maria"})
+
+        assert estado["contexto_valido"] is False
+        assert estado["contexto_erro_tecnico"] is True
+
+
+class TestVerificarContextoPergunta:
+    def test_contexto_valido(self):
+        assert main.verificar_contexto_pergunta({"contexto_valido": True}) == "contexto_valido"
+
+    def test_contexto_invalido(self):
+        assert main.verificar_contexto_pergunta({"contexto_valido": False}) == "contexto_invalido"
+
+
+class TestTratarPerguntaForaContexto:
+    def test_mensagem_por_classificacao_fora_de_contexto(self):
+        estado = main.tratar_pergunta_fora_contexto(
+            {"contexto_erro_tecnico": False, "justificativa_guardrail": "pergunta sobre carros"}
+        )
+
+        assert "não parece estar relacionada" in estado["mensagem_final"]
+        assert "carros" in estado["mensagem_final"]
+        assert "instabilidade técnica" not in estado["mensagem_final"]
+
+    def test_mensagem_por_erro_tecnico(self):
+        estado = main.tratar_pergunta_fora_contexto(
+            {"contexto_erro_tecnico": True, "justificativa_guardrail": "Error code: 429"}
+        )
+
+        assert "instabilidade técnica" in estado["mensagem_final"]
+        assert "429" in estado["mensagem_final"]
+        assert "não parece estar relacionada" not in estado["mensagem_final"]
+
+
+# ---------------------------------------------------------------------------
 # _executar_obter_prontuarios (helper async usado por obter_dados_paciente_paralelo)
 # ---------------------------------------------------------------------------
 
@@ -287,7 +390,7 @@ class TestExecutarObterProntuarios:
 
 class TestExecutarRecuperarConhecimento:
     def test_sem_prontuarios_retorna_lista_vazia(self):
-        resultado = asyncio.run(main._executar_recuperar_conhecimento([]))
+        resultado = asyncio.run(main._executar_recuperar_conhecimento(None, []))
 
         assert resultado["conhecimento_recuperado"] == []
         assert resultado["fontes_utilizadas"] == []
@@ -297,12 +400,39 @@ class TestExecutarRecuperarConhecimento:
         monkeypatch.setattr(main, "obter_provedor", MagicMock(return_value=provedor_mock))
         monkeypatch.setattr(main.busca_repo, "buscar_conhecimento", MagicMock())
 
-        resultado = asyncio.run(main._executar_recuperar_conhecimento([{"queixa": "", "conduta": ""}]))
+        resultado = asyncio.run(
+            main._executar_recuperar_conhecimento(None, [{"queixa": "", "conduta": ""}])
+        )
 
         assert resultado["conhecimento_recuperado"] == []
         assert resultado["fontes_utilizadas"] == []
         assert resultado["logging_rag"] == {}
         main.busca_repo.buscar_conhecimento.assert_not_called()
+
+    def test_prioriza_pergunta_do_medico_sobre_o_historico(self, monkeypatch):
+        monkeypatch.setattr(main, "obter_provedor", MagicMock(return_value=MagicMock()))
+        monkeypatch.setattr(main.busca_repo, "buscar_conhecimento", MagicMock(return_value=[]))
+
+        asyncio.run(
+            main._executar_recuperar_conhecimento(
+                "Este paciente tem doença respiratória?",
+                [{"queixa": "Tosse", "conduta": "Xarope"}],
+            )
+        )
+
+        consulta_usada = main.busca_repo.buscar_conhecimento.call_args.args[0]
+        assert consulta_usada == "Este paciente tem doença respiratória?"
+
+    def test_sem_pergunta_usa_fallback_do_historico(self, monkeypatch):
+        monkeypatch.setattr(main, "obter_provedor", MagicMock(return_value=MagicMock()))
+        monkeypatch.setattr(main.busca_repo, "buscar_conhecimento", MagicMock(return_value=[]))
+
+        asyncio.run(
+            main._executar_recuperar_conhecimento(None, [{"queixa": "Tosse", "conduta": "Xarope"}])
+        )
+
+        consulta_usada = main.busca_repo.buscar_conhecimento.call_args.args[0]
+        assert consulta_usada == "Tosse Xarope"
 
     def test_sucesso_retorna_conhecimento_e_fontes(self, monkeypatch):
         resultado_busca = SimpleNamespace(
@@ -323,7 +453,9 @@ class TestExecutarRecuperarConhecimento:
         )
 
         resultado = asyncio.run(
-            main._executar_recuperar_conhecimento([{"queixa": "Tosse", "conduta": "Xarope"}])
+            main._executar_recuperar_conhecimento(
+                "Quais problemas respiratórios ele tem?", [{"queixa": "Tosse", "conduta": "Xarope"}]
+            )
         )
 
         assert len(resultado["conhecimento_recuperado"]) == 1
@@ -335,7 +467,29 @@ class TestExecutarRecuperarConhecimento:
         assert resultado["logging_rag"]["tem_conhecimento"] is True
         assert resultado["logging_rag"]["docs_encontrados"] == 1
         assert resultado["logging_rag"]["scores"] == [0.87]
-        assert resultado["logging_rag"]["consulta_rag"] == "Tosse Xarope"
+        assert resultado["logging_rag"]["consulta_rag"] == "Quais problemas respiratórios ele tem?"
+
+    def test_descarta_documentos_abaixo_do_limiar_de_similaridade(self, monkeypatch):
+        relevante = SimpleNamespace(
+            conteudo="x", similaridade=0.9, fonte="A", tipo_documento="pcdt",
+            titulo="Relevante", autor=None, ano=None, pagina=None, planilha=None, arquivo="a.pdf",
+        )
+        irrelevante = SimpleNamespace(
+            conteudo="y", similaridade=0.05, fonte="B", tipo_documento="pcdt",
+            titulo="Irrelevante", autor=None, ano=None, pagina=None, planilha=None, arquivo="b.pdf",
+        )
+        monkeypatch.setattr(main, "obter_provedor", MagicMock(return_value=MagicMock()))
+        monkeypatch.setattr(
+            main.busca_repo, "buscar_conhecimento", MagicMock(return_value=[relevante, irrelevante])
+        )
+
+        resultado = asyncio.run(
+            main._executar_recuperar_conhecimento("pergunta qualquer", [{"queixa": "x", "conduta": "y"}])
+        )
+
+        assert len(resultado["conhecimento_recuperado"]) == 1
+        assert resultado["conhecimento_recuperado"][0]["titulo"] == "Relevante"
+        assert resultado["logging_rag"]["docs_descartados_por_limiar"] == 1
 
     def test_excecao_retorna_lista_vazia(self, monkeypatch):
         monkeypatch.setattr(
@@ -343,7 +497,7 @@ class TestExecutarRecuperarConhecimento:
         )
 
         resultado = asyncio.run(
-            main._executar_recuperar_conhecimento([{"queixa": "Tosse", "conduta": "Xarope"}])
+            main._executar_recuperar_conhecimento(None, [{"queixa": "Tosse", "conduta": "Xarope"}])
         )
 
         assert resultado["conhecimento_recuperado"] == []
@@ -371,14 +525,19 @@ class TestObterDadosPacienteParalelo:
             assert paciente_id == 42
             return {"prontuarios": [{"queixa": "Febre", "conduta": "Antitérmico"}], "exames": [], "data_ultima_consulta": None}
 
-        async def fake_recuperar_conhecimento(prontuarios):
+        async def fake_recuperar_conhecimento(pergunta_medico, prontuarios):
+            assert pergunta_medico == "Ele está com febre alta, é grave?"
             assert prontuarios == [{"queixa": "Febre", "conduta": "Antitérmico"}]
             return {"conhecimento_recuperado": [{"fonte": "Protocolo"}], "fontes_utilizadas": [{"fonte": "Protocolo"}]}
 
         monkeypatch.setattr(main, "_executar_obter_prontuarios", fake_obter_prontuarios)
         monkeypatch.setattr(main, "_executar_recuperar_conhecimento", fake_recuperar_conhecimento)
 
-        estado = asyncio.run(main.obter_dados_paciente_paralelo({"paciente": paciente}))
+        estado = asyncio.run(
+            main.obter_dados_paciente_paralelo(
+                {"paciente": paciente, "pergunta_medico": "Ele está com febre alta, é grave?"}
+            )
+        )
 
         assert estado["prontuarios"] == [{"queixa": "Febre", "conduta": "Antitérmico"}]
         assert estado["conhecimento_recuperado"] == [{"fonte": "Protocolo"}]
