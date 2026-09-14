@@ -63,6 +63,19 @@ def nome_modelo_do(provedor: Embeddings) -> str:
     return "mock"
 
 
+def dimensoes_do(provedor: Embeddings) -> int:
+    """Obtém a dimensão dos embeddings gerados pelo provedor."""
+    if isinstance(provedor, OllamaEmbeddings):
+        embedding = provedor.embed_query("teste")
+        return len(embedding)
+    # Mock/DeterministicFakeEmbedding
+    if hasattr(provedor, 'size'):
+        return provedor.size
+    # Fallback: testa com um texto
+    embedding = provedor.embed_query("teste")
+    return len(embedding)
+
+
 def obter_provedor(nome: str) -> Embeddings:
     """Obtém o provedor de embeddings. Suporta 'ollama' e 'mock' (para testes)."""
     escolha = nome.strip().lower()
