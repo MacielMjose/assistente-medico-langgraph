@@ -1,14 +1,16 @@
 # Assistente Médico LangGraph
 
-Sistema de apoio à decisão clínica baseado em LangGraph, PostgreSQL + pgvector e RAG (Retrieval-Augmented Generation) com suporte a múltiplos provedores de LLM.
+Sistema de apoio à decisão clínica baseado em LangGraph, PostgreSQL + pgvector e RAG (Retrieval-Augmented Generation) usando Ollama para modelos locais.
 
 ## 🚀 Quick Start
 
 ### Pré-requisitos
 
-- Python 3.10+
-- Docker e Docker Compose
-- Ollama (local ou Docker)
+- **Python 3.10+**
+- **Docker e Docker Compose** (para PostgreSQL e Ollama)
+- **Ollama** (local ou Docker) - para executar modelos de LLM e embeddings
+- **PostgreSQL 14+** (iniciado via Docker Compose)
+- **Git**
 
 ### Instalação
 
@@ -25,18 +27,64 @@ pip install -r requirements.txt
 cp .env.sample .env
 ```
 
-2. **Suba o PostgreSQL e Ollama (opcional):**
+2. **Suba os serviços (PostgreSQL e Ollama):**
 
 ```bash
 docker compose up -d
 ```
 
-3. **Execute as migrações e seed (se necessário):**
+Este comando inicia:
+- **PostgreSQL 14** com extensão pgvector (para busca vetorial RAG)
+- **Ollama** (para executar modelos de LLM e embeddings)
+
+Verifique se os containers estão rodando:
+```bash
+docker compose ps
+```
+
+3. **Baixe e configure os modelos do Ollama:**
 
 ```bash
-python database/connection.py  # Testa a conexão
-python database/etl_seed.py    # Popula dados iniciais
+# Modelo de embeddings
+ollama pull bge-m3
+
+# Modelo de chat (customizado ou padrão)
+# Se tiver seu modelo fine-tuned, crie com:
+# ollama create assistente_medico_small -f ./Modelfile
+# Caso contrário, use um modelo disponível:
+ollama pull qwen2:7b
 ```
+
+4. **Execute as migrações e seed:**
+
+```bash
+python database/connection.py  # Testa a conexão com PostgreSQL
+python database/etl_seed.py    # Popula dados iniciais no banco
+```
+
+---
+
+## ⚙️ Variáveis de Ambiente
+
+Configure o arquivo `.env` com as seguintes variáveis (copie de `.env.sample`):
+
+```bash
+# Ollama
+MEDPT_OLLAMA_BASE_URL=http://localhost:11434
+MEDPT_OLLAMA_CHAT_MODEL=qwen2:7b  # ou seu modelo fine-tuned
+MEDPT_EMBEDDING_PROVIDER=ollama
+MEDPT_OLLAMA_EMBEDDING_MODEL=bge-m3
+
+# PostgreSQL
+DATABASE_URL=postgresql://user:password@localhost:5432/assistente_medico
+MEDPT_DB_HOST=localhost
+MEDPT_DB_PORT=5432
+MEDPT_DB_USER=postgres
+MEDPT_DB_PASSWORD=postgres
+MEDPT_DB_NAME=assistente_medico
+```
+
+Verifique `.env.sample` para todas as variáveis disponíveis.
 
 ---
 
@@ -44,39 +92,10 @@ python database/etl_seed.py    # Popula dados iniciais
 
 O projeto usa **Ollama local** para executar modelos de chat e embeddings sem dependências de nuvem.
 
-**Pré-requisitos:**
-- Docker Compose rodando (serviço `ollama`)
-- Modelo de chat importado no Ollama (ex: `assistente_medico_small`)
-- Modelo de embeddings (ex: `bge-m3`)
-
-**Configuração:**
-
-```bash
-# .env
-MEDPT_OLLAMA_BASE_URL=http://localhost:11434
-MEDPT_OLLAMA_CHAT_MODEL=assistente_medico_small
-MEDPT_EMBEDDING_PROVIDER=ollama
-MEDPT_OLLAMA_EMBEDDING_MODEL=bge-m3
-```
-
-**Importar modelos:**
-
-```bash
-# Baixar modelo de embeddings
-ollama pull bge-m3
-
-# Importar modelo customizado (se tiver Modelfile e arquivos GGUF)
-# 1. Coloque seu Modelfile no diretório correto
-# 2. Execute
-ollama create assistente_medico_small -f /caminho/Modelfile
-
-# 3. Verifique
-ollama list
-```
-
-**Exemplo de Modelfile:**
+Os modelos são baixados e configurados no passo 3 da instalação. Se precisar de um modelo customizado com Modelfile:
 
 ```dockerfile
+# Exemplo de Modelfile
 FROM /caminho/seu-modelo-base.gguf
 
 # Parâmetros opcionais
@@ -84,6 +103,13 @@ PARAMETER temperature 0.7
 PARAMETER top_p 0.9
 PARAMETER top_k 40
 ```
+
+Para criar o modelo no Ollama:
+```bash
+ollama create assistente_medico_small -f ./Modelfile
+```
+
+Consulte a [documentação do Ollama](https://ollama.ai/) para mais detalhes sobre criar e customizar modelos.
 
 ---
 
@@ -98,7 +124,7 @@ PARAMETER top_k 40
 ├── src/
 │   ├── models/                      # Modelos Pydantic (estado, dados)
 │   ├── services/
-│   │   └── llm_provider_service.py  # Gerenciamento de provedores LLM
+│   │   └── llm_provider_service.py  # Cliente Ollama para LLM local
 │   ├── db/
 │   │   ├── connection.py            # Conexão PostgreSQL
 │   │   ├── models.py                # Modelos SQLAlchemy
@@ -121,14 +147,63 @@ PARAMETER top_k 40
 
 ---
 
-## 🧪 Executando o Assistente
+## 🚀 Executando o Assistente
+
+Antes de executar, verifique se tudo está pronto:
 
 ```bash
-# Certifique-se de que Ollama está rodando
-ollama serve
+# 1. Verifique se os containers estão rodando
+docker compose ps
 
-# Em outro terminal, execute
+# 2. Verifique se Ollama tem os modelos necessários
+ollama list
+
+# 3. Teste a conexão com PostgreSQL
+python database/connection.py
+
+# 4. Execute o assistente
 python main.py
+```
+
+---
+
+## 🔧 Troubleshooting
+
+### "Connection refused" ao conectar no PostgreSQL
+```bash
+# Verifique se PostgreSQL está rodando
+docker compose ps
+
+# Se não estiver, inicie
+docker compose up -d
+
+# Verifique as credenciais em .env
+```
+
+### "Ollama connection refused"
+```bash
+# Verifique se Ollama está rodando
+docker compose ps
+
+# Ou, se rodando localmente fora do Docker
+ollama serve
+```
+
+### Modelos não encontrados no Ollama
+```bash
+# Verifique modelos disponíveis
+ollama list
+
+# Puxe os modelos necessários
+ollama pull bge-m3
+ollama pull qwen2:7b
+```
+
+### Erro ao importar módulos Python
+```bash
+# Reinstale as dependências
+pip install --upgrade pip
+pip install -r requirements.txt
 ```
 
 ---
@@ -171,4 +246,4 @@ Para dúvidas ou problemas, abra uma issue no repositório.
 
 ---
 
-**Última atualização:** 2026-09-13
+**Última atualização:** 2026-09-14
