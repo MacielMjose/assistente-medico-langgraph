@@ -1,6 +1,6 @@
 # Assistente Médico LangGraph
 
-Sistema de apoio à decisão clínica baseado em LangGraph, PostgreSQL + pgvector e RAG (Retrieval-Augmented Generation) com suporte a múltiplos provedores de LLM.
+Sistema de apoio à decisão clínica baseado em LangGraph, PostgreSQL + pgvector e RAG (Retrieval-Augmented Generation) usando Ollama para modelos locais.
 
 ## 🚀 Quick Start
 
@@ -98,7 +98,7 @@ PARAMETER top_k 40
 ├── src/
 │   ├── models/                      # Modelos Pydantic (estado, dados)
 │   ├── services/
-│   │   └── llm_provider_service.py  # Gerenciamento de provedores LLM
+│   │   └── llm_provider_service.py  # Cliente Ollama para LLM local
 │   ├── db/
 │   │   ├── connection.py            # Conexão PostgreSQL
 │   │   ├── models.py                # Modelos SQLAlchemy
@@ -171,4 +171,4 @@ Para dúvidas ou problemas, abra uma issue no repositório.
 
 ---
 
-**Última atualização:** 2026-09-13
+**Última atualização:** 2026-09-14
