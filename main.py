@@ -300,12 +300,7 @@ async def _executar_recuperar_conhecimento(pergunta_medico, prontuarios):
     """
     import time as _time
 
-    print(f"\n[DEBUG RAG] Iniciando recuperação de conhecimento...")
-    print(f"[DEBUG RAG] Prontuários: {len(prontuarios)}")
-    print(f"[DEBUG RAG] Pergunta: {pergunta_medico[:80] if pergunta_medico else 'VAZIA'}...")
-
     if not prontuarios:
-        print(f"[DEBUG RAG] Retorno: sem prontuários")
         return {"conhecimento_recuperado": [], "fontes_utilizadas": [], "logging_rag": {}}
 
     try:
@@ -323,10 +318,7 @@ async def _executar_recuperar_conhecimento(pergunta_medico, prontuarios):
         else:
             consulta = contexto_prontuarios
 
-        print(f"[DEBUG RAG] Consulta final: {consulta[:80]}...")
-
         if not consulta:
-            print(f"[DEBUG RAG] Retorno: consulta vazia")
             return {"conhecimento_recuperado": [], "fontes_utilizadas": [], "logging_rag": {}}
 
         limiar_minimo = float(os.getenv("MEDPT_RAG_SIMILARIDADE_MINIMA", "0.2"))
@@ -335,25 +327,12 @@ async def _executar_recuperar_conhecimento(pergunta_medico, prontuarios):
         provider_name = os.getenv("MEDPT_EMBEDDING_PROVIDER", "mock")
         provedor = obter_provedor(provider_name)
 
-        # Debug RAG
-        print(f"\n[DEBUG RAG] Consulta: {consulta[:100]}...")
-        print(f"[DEBUG RAG] Provider: {provider_name}")
-        print(f"[DEBUG RAG] Limiar mínimo: {limiar_minimo}")
-
         resultados_brutos = await asyncio.to_thread(
             busca_repo.buscar_conhecimento, consulta, provedor, 5
         )
 
-        print(f"[DEBUG RAG] Documentos encontrados (brutos): {len(resultados_brutos)}")
-        if resultados_brutos:
-            scores = [r.similaridade for r in resultados_brutos]
-            print(f"[DEBUG RAG] Scores: {scores}")
-            print(f"[DEBUG RAG] Score máximo: {max(scores):.4f}, mínimo: {min(scores):.4f}")
-
         resultados = [r for r in resultados_brutos if r.similaridade >= limiar_minimo]
         tempo_ms = int((_time.perf_counter() - inicio) * 1000)
-
-        print(f"[DEBUG RAG] Documentos após limiar: {len(resultados)}")
 
         conhecimento = [
             {
@@ -399,9 +378,6 @@ async def _executar_recuperar_conhecimento(pergunta_medico, prontuarios):
             "logging_rag": logging_rag,
         }
     except Exception as e:
-        print(f"\n[DEBUG RAG] ERRO: {str(e)}")
-        import traceback
-        print(f"[DEBUG RAG] Traceback: {traceback.format_exc()}")
         return {
             "conhecimento_recuperado": [],
             "fontes_utilizadas": [],
