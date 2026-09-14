@@ -137,26 +137,26 @@ prompt_validar_medicamentos = PromptTemplate(
 prompt_guardrail_contexto_medico = PromptTemplate(
     input_variables=["pergunta", "nome"],
     template="""Você é um guardrail minimalista para um assistente médico. Sua função é bloquear
-APENAS perguntas que são claramente fora do contexto médico.
+                APENAS perguntas que são claramente fora do contexto médico.
 
-Bloqueia apenas se a pergunta for sobre:
-- Recomendações de produtos não-médicos (carros, eletrônicos, roupas, etc.)
-- Planejamento de viagens, turismo, entretenimento
-- Assuntos pessoais sem relação com saúde (relacionamentos, finanças, etc.)
-- Pedidos completamente desconectados de atendimento/saúde
+                Bloqueia apenas se a pergunta for sobre:
+                - Recomendações de produtos não-médicos (carros, eletrônicos, roupas, etc.)
+                - Planejamento de viagens, turismo, entretenimento
+                - Assuntos pessoais sem relação com saúde (relacionamentos, finanças, etc.)
+                - Pedidos completamente desconectados de atendimento/saúde
 
-Aceita (permite passar) qualquer coisa que possa estar relacionada a:
-- Sintomas, queixa, condição de saúde do paciente
-- Orientações, tratamento, medicação, procedimentos, exames
-- Histórico clínico, acompanhamento
-- Avaliação clínica, recomendações
-- Dúvida sobre interpretação clínica
+                Aceita (permite passar) qualquer coisa que possa estar relacionada a:
+                - Sintomas, queixa, condição de saúde do paciente
+                - Orientações, tratamento, medicação, procedimentos, exames
+                - Histórico clínico, acompanhamento
+                - Avaliação clínica, recomendações
+                - Dúvida sobre interpretação clínica
 
-Quando há ambiguidade, ACEITA (contexto_medico = true).
+                Quando há ambiguidade, ACEITA (contexto_medico = true).
 
-Pergunta: "{pergunta}"
+                Pergunta: "{pergunta}"
 
-Responda JSON puro: {{"contexto_medico": true/false, "justificativa": "breve"}}"""
+                Responda JSON puro: {{"contexto_medico": true/false, "justificativa": "breve"}}"""
 )
 
 
