@@ -1,0 +1,23 @@
+{
+  "run_id": "final-20260913-1346",
+  "modelo": "Qwen/Qwen2.5-3B-Instruct",
+  "wall_clock_treino_min": 45.6,
+  "n_test": 487,
+  "token_accuracy": {
+    "base": 0.4994,
+    "fine_tuned": 0.5548,
+    "ganho_pp": 5.55,
+    "baseline_validation": 0.4966
+  },
+  "perplexidade": {
+    "base": 16.48,
+    "fine_tuned": 7.71
+  },
+  "eval_loss_min": 2.0874102115631104,
+  "bertscore_f1": {
+    "n": 150,
+    "modelo_avaliador": "neuralmind/bert-base-portuguese-cased",
+    "base": 0.5892,
+    "fine_tuned": 0.6134
+  }
+}

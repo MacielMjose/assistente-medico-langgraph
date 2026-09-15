@@ -1,0 +1,44 @@
+{
+  "versao": "v3",
+  "max_length_sugerido": 408,
+  "system_prompt": "Você é um assistente médico de apoio. Responda em português, de forma objetiva e baseada em evidências, e não substitua a avaliação de um profissional de saúde.",
+  "system_prompt_hash": "e7f03852bc2c",
+  "seed": 42,
+  "model_id_tokenizer": "Qwen/Qwen2.5-3B-Instruct",
+  "limpeza": {
+    "total_bruto": 10000,
+    "mantido": 4870,
+    "taxa_descarte": 0.513,
+    "por_filtro": {
+      "ignora_a_pergunta": 1833,
+      "resposta_curta": 1467,
+      "escopo_terapia_complementar": 718,
+      "resposta_longa": 665,
+      "nome_proprio_residual": 149,
+      "contato_autopromocao": 126,
+      "pergunta_longa": 108,
+      "nao_resposta": 63,
+      "near_duplicatas": 1
+    }
+  },
+  "splits": {
+    "train": 3896,
+    "validation": 487,
+    "test": 487
+  },
+  "near_duplicates_train_test": 0,
+  "tokens": {
+    "media_total": 212.9,
+    "media_resposta": 99.4,
+    "pct_com_gradiente": 46.7,
+    "max_total": 408,
+    "pct_truncados": 0.0
+  },
+  "limites": {
+    "MIN_TOK_RESPOSTA": 40,
+    "MAX_TOK_RESPOSTA": 200,
+    "MAX_TOK_PERGUNTA": 160,
+    "MIN_OVERLAP": 0.06,
+    "LIMIAR_NEAR_DUP": 0.88
+  }
+}
