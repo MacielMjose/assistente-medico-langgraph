@@ -1,0 +1,91 @@
+{
+  "run_id": "final-20260913-1346",
+  "model_id": "Qwen/Qwen2.5-3B-Instruct",
+  "modo_teste": false,
+  "usar_4bit": false,
+  "dataset_treino": 3896,
+  "dataset_validacao": 400,
+  "dataset_teste": 487,
+  "compute_dtype": "torch.float16",
+  "lora_r": 16,
+  "lora_alpha": 32,
+  "lora_dropout": 0.05,
+  "lora_target_modules": [
+    "q_proj",
+    "k_proj",
+    "v_proj",
+    "o_proj"
+  ],
+  "batch_size": 2,
+  "grad_accum": 8,
+  "learning_rate": 0.0001,
+  "epochs_teto": 2,
+  "gradient_checkpointing": true,
+  "max_length": 408,
+  "seed": 42,
+  "wall_clock_treino_min": 45.6,
+  "baseline_validation": {
+    "mean_token_accuracy": 0.4965707133917397,
+    "perplexidade": 17.90194870037369,
+    "tokens_avaliados": 19975,
+    "modelo": "Qwen/Qwen2.5-3B-Instruct",
+    "adapter": null,
+    "n_exemplos": 200,
+    "split": "validation",
+    "max_length": 408,
+    "seed": 42,
+    "segundos": 18.9
+  },
+  "preprocessing_metadata": {
+    "versao": "v3",
+    "max_length_sugerido": 408,
+    "system_prompt": "Você é um assistente médico de apoio. Responda em português, de forma objetiva e baseada em evidências, e não substitua a avaliação de um profissional de saúde.",
+    "system_prompt_hash": "e7f03852bc2c",
+    "seed": 42,
+    "model_id_tokenizer": "Qwen/Qwen2.5-3B-Instruct",
+    "limpeza": {
+      "total_bruto": 10000,
+      "mantido": 4870,
+      "taxa_descarte": 0.513,
+      "por_filtro": {
+        "ignora_a_pergunta": 1833,
+        "resposta_curta": 1467,
+        "escopo_terapia_complementar": 718,
+        "resposta_longa": 665,
+        "nome_proprio_residual": 149,
+        "contato_autopromocao": 126,
+        "pergunta_longa": 108,
+        "nao_resposta": 63,
+        "near_duplicatas": 1
+      }
+    },
+    "splits": {
+      "train": 3896,
+      "validation": 487,
+      "test": 487
+    },
+    "near_duplicates_train_test": 0,
+    "tokens": {
+      "media_total": 212.9,
+      "media_resposta": 99.4,
+      "pct_com_gradiente": 46.7,
+      "max_total": 408,
+      "pct_truncados": 0.0
+    },
+    "limites": {
+      "MIN_TOK_RESPOSTA": 40,
+      "MAX_TOK_RESPOSTA": 200,
+      "MAX_TOK_PERGUNTA": 160,
+      "MIN_OVERLAP": 0.06,
+      "LIMIAR_NEAR_DUP": 0.88
+    }
+  },
+  "versions": {
+    "torch": "2.11.0+cu128",
+    "transformers": "5.14.1",
+    "datasets": "5.0.1",
+    "peft": "0.19.1",
+    "trl": "1.9.0",
+    "bitsandbytes": "0.50.0"
+  }
+}
